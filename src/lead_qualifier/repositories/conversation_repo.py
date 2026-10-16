@@ -94,5 +94,11 @@ class ConversationRepository:
                     audit_trail
                 ) VALUES (%s, %s, %s, %s, %s)
                 """,
-                (phone_number, str(rule_set_id), final_score, is_qualified, json.dumps(audit_trail)),
+                (
+                    phone_number,
+                    str(rule_set_id),
+                    final_score,
+                    is_qualified,
+                    json.dumps(audit_trail),
+                ),
             )

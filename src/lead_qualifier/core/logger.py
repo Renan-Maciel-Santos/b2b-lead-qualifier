@@ -1,8 +1,8 @@
 """Structured JSON logging configuration for cloud and container runtime."""
 
-from datetime import UTC, datetime
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 

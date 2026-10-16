@@ -14,6 +14,8 @@ class TurnRequest(BaseModel):
 class TurnResponse(BaseModel):
     """Outbound response payload returned to the messaging transport."""
 
-    reply_message: str = Field(..., description="Response message to be dispatched back to the lead.")
+    reply_message: str = Field(
+        ..., description="Response message to be dispatched back to the lead."
+    )
     current_state: str = Field(..., description="Current state machine status.")
     is_finished: bool = Field(..., description="Whether the qualification dialogue has completed.")

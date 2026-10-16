@@ -47,9 +47,13 @@ class StateMachineService:
         if rule_set is not None:
             strategies = build_strategies_from_rules(rule_set["rules"])
             threshold = int(rule_set.get("qualification_threshold", 50))
-            return ScoringService(strategies, qualification_threshold=threshold), str(rule_set["id"])
+            return ScoringService(strategies, qualification_threshold=threshold), str(
+                rule_set["id"]
+            )
 
-        logger.warning("No active scoring_rule_set found for tenant; falling back to in-memory defaults.")
+        logger.warning(
+            "No active scoring_rule_set found for tenant; falling back to in-memory defaults."
+        )
         default_strategies = [
             KnockoutStrategy(field="role", knockout_value="estudante"),
             ExactMatchStrategy(field="revenue", target_value="5 milhoes ao ano", points=50),
@@ -66,7 +70,9 @@ class StateMachineService:
         Returns:
             TurnResponse: System reply message, conversation state, and completion flag.
         """
-        logger.info(f"Processing turn for lead {request.phone_number} (Msg ID: {request.message_id})")
+        logger.info(
+            f"Processing turn for lead {request.phone_number} (Msg ID: {request.message_id})"
+        )
 
         # Reject duplicated messages immediately based on the WhatsApp message ID
         if await self.repo.is_message_processed(request.message_id):
@@ -108,7 +114,9 @@ class StateMachineService:
 
         # Qualification completed branch
         if is_qualified or (slots.role is not None and slots.revenue is not None):
-            logger.info(f"Lead {request.phone_number} completed qualification with score {final_score}.")
+            logger.info(
+                f"Lead {request.phone_number} completed qualification with score {final_score}."
+            )
             if rule_set_id:
                 await self.repo.save_scoring_result(
                     phone_number=request.phone_number,

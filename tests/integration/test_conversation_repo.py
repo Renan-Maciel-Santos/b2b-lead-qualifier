@@ -2,8 +2,8 @@
 
 import uuid
 
-from psycopg import AsyncConnection
 import pytest
+from psycopg import AsyncConnection
 
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from tests.conftest import TENANT_DEMO, set_test_tenant_context

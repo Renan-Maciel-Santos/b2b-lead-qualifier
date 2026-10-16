@@ -1,8 +1,9 @@
 """FastAPI application entrypoint and lifespan management."""
 
 import asyncio
-from contextlib import asynccontextmanager
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -19,7 +20,7 @@ if sys.platform == "win32":
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application startup and shutdown lifecycle.
 
     Initializes the database connection pool in app.state, validates connectivity,

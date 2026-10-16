@@ -19,7 +19,9 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     Returns:
         JSONResponse: A generic 500 Internal Server Error response.
     """
-    logger.error(f"Unhandled error processing request to {request.url.path}: {exc!s}", exc_info=True)
+    logger.error(
+        f"Unhandled error processing request to {request.url.path}: {exc!s}", exc_info=True
+    )
     return JSONResponse(
         status_code=500,
         content={"message": "An internal server error occurred."},

@@ -32,11 +32,11 @@ async def get_tenant_connection(
     """
     try:
         tenant_uuid = UUID(tenant)
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as err:
         raise HTTPException(
             status_code=400,
             detail="Invalid or unauthorized tenant identifier.",
-        )
+        ) from err
 
     async with conn.cursor() as cur:
         try:
@@ -67,15 +67,15 @@ async def get_tenant_connection(
                 )
 
             # Safe identifier formatting for search_path switching
-            set_search_path_query = sql.SQL(
-                "SET LOCAL search_path TO {}, public"
-            ).format(sql.Identifier(schema_name))
+            set_search_path_query = sql.SQL("SET LOCAL search_path TO {}, public").format(
+                sql.Identifier(schema_name)
+            )
             await cur.execute(set_search_path_query)
 
-        except PsycopgError:
+        except PsycopgError as err:
             raise HTTPException(
                 status_code=400,
                 detail="Failed to initialize tenant security context.",
-            )
+            ) from err
 
     return conn
