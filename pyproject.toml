@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Enterprise conversational B2B lead qualification platform: multi-tenant PostgreSQL 17 + pgvector, deterministic scoring core, FastAPI and LLM edge."
 readme = "README.md"
 authors = [
-    { name = "Renan Maciel", email = "renan.gregar@gmail.com" }
+    { name = "Renan Maciel" }
 ]
 requires-python = ">=3.12"
 dependencies = [
