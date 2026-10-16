@@ -1,18 +1,26 @@
-# Importa Request e JSONResponse do FastAPI para manipular requisicoes HTTP
+"""Global exception handling and error response formatting."""
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-# Importa o logger configurado do projeto
 from lead_qualifier.core.logger import logger
 
 
-# Cria a funcao que captura e lida com excecoes globais nao tratadas (Erro 500)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Registra o erro no log, salvando o caminho que deu erro e a pilha de execucao (traceback)
-    logger.error(f"Erro nao tratado na rota {request.url.path}: {exc!s}", exc_info=True)
-    
-    # Cria a resposta generica que sera enviada ao cliente para mascarar detalhes internos
-    response_content = {"message": "Ocorreu um erro interno no servidor."}
-    
-    # Retorna o JSON formatado com o codigo de erro 500 (Internal Server Error)
-    return JSONResponse(status_code=500, content=response_content)
+    """Handle uncaught exceptions across all application routes.
+
+    Logs the error with traceback for debugging while masking internal error
+    details from the client response.
+
+    Args:
+        request: The incoming FastAPI request that encountered an unhandled exception.
+        exc: The raised exception instance.
+
+    Returns:
+        JSONResponse: A generic 500 Internal Server Error response.
+    """
+    logger.error(f"Unhandled error processing request to {request.url.path}: {exc!s}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An internal server error occurred."},
+    )

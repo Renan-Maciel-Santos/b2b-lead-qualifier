@@ -1,54 +1,61 @@
+"""Conversation persistence repository for message idempotency and qualification scoring."""
+
 import json
+from typing import Any
 from uuid import UUID
 
-# Importa a conexao assincrona e a fabrica de dicionarios do psycopg
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 
-# Cria a classe responsavel por falar com o banco de dados sobre as conversas (Repositorio)
 class ConversationRepository:
-    """Gerencia a persistencia de conversas, idempotencia e scoring no banco de dados."""
+    """Repository managing message idempotency and append-only scoring results."""
 
-    # Recebe a conexao ativa do banco ao ser instanciado pelo controller
-    def __init__(self, conn: AsyncConnection):
-        # Guarda a conexao para ser usada pelos metodos
+    def __init__(self, conn: AsyncConnection) -> None:
+        """Initialize repository with an active tenant-scoped database connection.
+
+        Args:
+            conn: PostgreSQL async connection with tenant RLS and search_path active.
+        """
         self.conn = conn
 
-    # Metodo que verifica se a mensagem especifica do WhatsApp ja foi processada (Idempotencia)
     async def is_message_processed(self, message_id: str) -> bool:
-        """Verifica se a mensagem ja foi processada para evitar duplicidade."""
-        # Inicia o cursor instruindo o psycopg a retornar linhas como dicionarios
+        """Check whether a message ID has already been processed by the tenant.
+
+        Args:
+            message_id: Inbound message identifier from transport.
+
+        Returns:
+            bool: True if already recorded, False otherwise.
+        """
         async with self.conn.cursor(row_factory=dict_row) as cur:
-            # Faz uma consulta rapida procurando o ID na tabela de mensagens processadas
-            # Como o search_path e o RLS estao ativos, o banco consulta no schema isolado do tenant
             await cur.execute(
                 "SELECT 1 FROM processed_messages WHERE message_id = %s",
                 (message_id,),
             )
-            # Tenta pegar a primeira (e unica) linha de resultado
             result = await cur.fetchone()
-            # Retorna booleano True se achar a mensagem (duplicada), ou False se for inedita
             return result is not None
 
-    # Metodo que registra uma nova mensagem como processada, salvando no banco de dados
-    async def mark_message_processed(self, message_id: str):
-        """Registra a mensagem na tabela de idempotencia do tenant."""
-        # Inicia o cursor
+    async def mark_message_processed(self, message_id: str) -> None:
+        """Record an inbound message in the idempotency table.
+
+        Args:
+            message_id: Unique message identifier to record.
+        """
         async with self.conn.cursor() as cur:
-            # Insere o ID da mensagem na tabela de idempotencia do banco
-            # O campo 'tenant_id' e preenchido automaticamente pelo banco devido ao valor DEFAULT na tabela
+            # tenant_id is automatically assigned via DEFAULT (app.current_tenant)
             await cur.execute(
                 "INSERT INTO processed_messages (message_id) VALUES (%s) ON CONFLICT DO NOTHING",
                 (message_id,),
             )
 
-    # Busca a versao ativa das regras de qualificacao de leads cadastrada para o tenant
-    async def get_active_scoring_rule_set(self) -> dict | None:
-        """Recupera o conjunto de regras de scoring ativo para o tenant."""
-        # Inicia o cursor com retorno em dicionario
+    async def get_active_scoring_rule_set(self) -> dict[str, Any] | None:
+        """Retrieve the currently active scoring rule set for the tenant.
+
+        Returns:
+            dict[str, Any] | None: Rule set record including JSONB rules, or None if not configured.
+        """
         async with self.conn.cursor(row_factory=dict_row) as cur:
-            # Busca a versao ativa de scoring do tenant
             await cur.execute(
                 """
                 SELECT id, version, rules, qualification_threshold
@@ -57,10 +64,8 @@ class ConversationRepository:
                 LIMIT 1
                 """
             )
-            # Retorna o registro com id, versao e regras em JSONB, ou None caso ainda nao cadastrado
             return await cur.fetchone()
 
-    # Metodo para salvar a pontuacao final do lead na tabela de resultados
     async def save_scoring_result(
         self,
         phone_number: str,
@@ -68,11 +73,17 @@ class ConversationRepository:
         final_score: int,
         is_qualified: bool,
         audit_trail: list[str],
-    ):
-        """Salva a decisao append-only de qualificacao associada a versao exata de regras."""
-        # Inicia o cursor
+    ) -> None:
+        """Persist an immutable scoring outcome tied to the active rule set version.
+
+        Args:
+            phone_number: Evaluated lead phone number in E.164 format.
+            rule_set_id: UUID of the rule set version applied.
+            final_score: Computed integer score.
+            is_qualified: Final boolean decision.
+            audit_trail: Chronological list of rule evaluation explanations.
+        """
         async with self.conn.cursor() as cur:
-            # Insere o resultado do scoring no banco com FK composta amarrada a versao de regras
             await cur.execute(
                 """
                 INSERT INTO scoring_results (

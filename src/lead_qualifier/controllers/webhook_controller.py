@@ -1,33 +1,41 @@
-# Importa a tipagem da conexao assincrona do Postgres
+"""Webhook orchestration controller.
+
+Connects incoming HTTP webhook payloads to the conversational state machine
+and manages database transaction boundaries.
+"""
+
 from psycopg import AsyncConnection
 
-# Importa a tipagem de dados dos payloads
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-
-# Importa o repositorio de persistencia
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
-
-# Importa a maquina de estados de regras de negocio
 from lead_qualifier.services.state_machine import StateMachineService
 
 
-# Cria a classe controladora que orquestra a solicitacao web HTTP ligando ao Service e Repository
 class WebhookController:
-    # E instanciada no Router injetando a conexao com o RLS ja isolado
-    def __init__(self, conn: AsyncConnection):
-        # Instancia o repositorio entregando a ele a conexao do banco
+    """Controller coordinating conversation turn processing and transaction commits."""
+
+    def __init__(self, conn: AsyncConnection) -> None:
+        """Initialize controller with a tenant-scoped connection.
+
+        Args:
+            conn: Active AsyncConnection already initialized with tenant RLS context.
+        """
         self.repo = ConversationRepository(conn)
-        # Instancia o servico da maquina de estados entregando a ele o repositorio configurado
         self.service = StateMachineService(self.repo)
 
-    # Executa a orquestracao da acao de turno de fala do usuario
     async def handle_turn(self, request: TurnRequest) -> TurnResponse:
-        # Pede para o service processar a mensagem (validar idempotencia, extrair LLM e escolher resposta)
-        response = await self.service.process_turn(request)
-        
-        # Efetua o "commit" (salvamento definitivo) da transacao no PostgreSQL
-        # Fazemos isso no controller para garantir que qualquer erro de execucao no service reverta os dados
-        await self.repo.conn.commit()
+        """Handle a single conversational turn from the messaging transport.
 
-        # Retorna o resultado JSON empacotado para o roteador enviar ao n8n
+        Commits the transaction upon successful processing so state and idempotency
+        are committed atomically.
+
+        Args:
+            request: Inbound turn payload containing message ID and user text.
+
+        Returns:
+            TurnResponse: System response and next state for the caller.
+        """
+        response = await self.service.process_turn(request)
+        # Commit at the controller boundary to ensure that any failure in the service aborts the transaction
+        await self.repo.conn.commit()
         return response
