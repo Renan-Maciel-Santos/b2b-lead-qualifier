@@ -1,39 +1,39 @@
-# Importa asyncio e sys para ajustar o event loop no Windows
+"""Pytest fixtures and configuration for real PostgreSQL integration testing."""
+
 import asyncio
+from collections.abc import AsyncIterator
 import os
 import sys
 
-# Verifica se a aplicacao esta rodando no sistema operacional Windows
+# Windows selector loop policy is required for psycopg async event loop support on Windows
 if sys.platform == "win32":
-    # Substitui o motor assincrono padrao pelo compativel com o psycopg
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# Importa o pytest_asyncio
+from psycopg import AsyncConnection, sql
 import pytest_asyncio
 
-# Importa a conexao assincrona e modulos SQL do psycopg
-from psycopg import AsyncConnection, sql
-
-# Demo environment tenant ID (Acme Corp)
+# Deterministic demo and attacker tenant identifiers
 TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
-# Define o tenant ID do invasor simulado
 TENANT_INVASOR = "22222222-2222-2222-2222-222222222222"
 
 
-# Helper para configurar tenant e search_path em conexoes de teste de forma segura e parametrizada
 async def set_test_tenant_context(
     conn: AsyncConnection,
     tenant_id: str,
     schema_name: str,
-):
-    """Configura o app.current_tenant e search_path de forma parametrizada na sessao de teste."""
+) -> None:
+    """Configure tenant session GUC and search_path safely using parameterized queries.
+
+    Args:
+        conn: Target database connection.
+        tenant_id: Tenant UUID string.
+        schema_name: Target schema name.
+    """
     async with conn.cursor() as cur:
-        # Injeta o UUID no contexto de sessao RLS
         await cur.execute(
             "SELECT set_config('app.current_tenant', %s, true)",
             (tenant_id,),
         )
-        # Seta o search_path de forma segura para o schema do tenant
         await cur.execute(
             sql.SQL("SET LOCAL search_path TO {}, public").format(
                 sql.Identifier(schema_name)
@@ -41,10 +41,9 @@ async def set_test_tenant_context(
         )
 
 
-# Fixture administrativa para gerenciar schemas e tabelas nos testes
 @pytest_asyncio.fixture
-async def db_admin():
-    """Conexao de superuser para operacoes administrativas e de preparacao de dados."""
+async def db_admin() -> AsyncIterator[AsyncConnection]:
+    """Yield a superuser connection for administrative operations and schema provisioning."""
     admin_user = os.getenv("DB_ADMIN_USER", "postgres")
     admin_pwd = os.getenv("DB_ADMIN_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
@@ -53,22 +52,18 @@ async def db_admin():
         yield conn
 
 
-# Fixture que garante que os tenants necessarios para testes estejam provisionados
 @pytest_asyncio.fixture(autouse=True)
-async def setup_test_tenants(db_admin):
-    """Garante o provisionamento idempotente dos schemas de tenant para os testes."""
+async def setup_test_tenants(db_admin: AsyncConnection) -> None:
+    """Ensure test tenants and baseline rule sets are provisioned idempotently before each test."""
     async with db_admin.cursor() as cur:
-        # Provisiona o tenant demonstrativo (tenant_demo)
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
             (TENANT_DEMO, "Acme Corp (Demo)", "tenant_demo"),
         )
-        # Provisiona o tenant invasor (tenant_invasor) para testes de barreira RLS
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
             (TENANT_INVASOR, "Tenant Invasor", "tenant_invasor"),
         )
-        # Garante regra ativa para o tenant demo
         await cur.execute(
             """
             INSERT INTO tenant_demo.scoring_rule_sets (
@@ -91,10 +86,9 @@ async def setup_test_tenants(db_admin):
         await db_admin.commit()
 
 
-# Fixture restrita da aplicacao (app_user) sem BYPASSRLS
 @pytest_asyncio.fixture
-async def db_app():
-    """Conexao restrita da aplicacao onde o RLS sempre se aplica obrigatoriamente."""
+async def db_app() -> AsyncIterator[AsyncConnection]:
+    """Yield an unprivileged application connection without BYPASSRLS."""
     app_user = os.getenv("DB_USER", "app_user")
     app_pwd = os.getenv("DB_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")

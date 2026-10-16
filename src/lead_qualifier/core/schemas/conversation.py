@@ -1,23 +1,19 @@
-# Importa o BaseModel do Pydantic para validar os dados de entrada
-# Importa List e Optional para tipagem de dados (se necessario futuramente)
+"""Conversation payload schemas for messaging transports (e.g. n8n / WhatsApp)."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-# Define a estrutura de dados (Schema) que o n8n vai mandar para a API
 class TurnRequest(BaseModel):
-    # O ID unico da mensagem gerado pelo WhatsApp/n8n (usado como chave de idempotencia)
-    message_id: str
-    # O numero de telefone do lead (usado para recuperar a conversa no banco depois)
-    phone_number: str
-    # O texto que o lead digitou e enviou no WhatsApp
-    user_message: str
+    """Inbound message payload representing a single conversation turn from the user."""
 
-# Define a estrutura de dados (Schema) de resposta da API de volta para o n8n
+    message_id: str = Field(..., description="Unique message ID used for idempotency enforcement.")
+    phone_number: str = Field(..., description="Lead contact phone number in E.164 format.")
+    user_message: str = Field(..., description="Inbound text content sent by the lead.")
+
+
 class TurnResponse(BaseModel):
-    # A resposta de texto gerada pela IA/Motor que o n8n deve encaminhar pro usuario
-    reply_message: str
-    # O estado atual da conversa (ex: COLETANDO_NOME, SCORING, etc)
-    current_state: str
-    # Uma flag verdadeira indicando se a avaliacao terminou (para o n8n encerrar o fluxo)
-    is_finished: bool
+    """Outbound response payload returned to the messaging transport."""
+
+    reply_message: str = Field(..., description="Response message to be dispatched back to the lead.")
+    current_state: str = Field(..., description="Current state machine status.")
+    is_finished: bool = Field(..., description="Whether the qualification dialogue has completed.")

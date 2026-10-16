@@ -1,75 +1,81 @@
+"""Multi-tenant connection dependency with strict RLS and search_path isolation."""
+
 import re
 from typing import Annotated
 from uuid import UUID
 
-# Importa o FastAPI Depends e HTTPException
 from fastapi import Depends, HTTPException
-
-# Importa a conexao assincrona nativa e modulos SQL seguros do psycopg
 from psycopg import AsyncConnection, sql
 from psycopg.errors import Error as PsycopgError
 
-# Importa o pool de conexoes
 from lead_qualifier.core.database import get_db_connection
 
 
-# Dependencia que valida o tenant, injeta o RLS e define o search_path com o schema do cliente
 async def get_tenant_connection(
     tenant: str,
     conn: Annotated[AsyncConnection, Depends(get_db_connection)],
 ) -> AsyncConnection:
-    """Valida o UUID do tenant, injeta o contexto no PostgreSQL e configura o search_path do schema."""
-    # Valida formato UUID da URL antes de qualquer chamada ao banco
+    """Validate tenant identity, apply PostgreSQL RLS session GUC, and set the tenant search_path.
+
+    Enforces fail-closed multi-tenancy: if the tenant is invalid or does not exist,
+    the request is terminated immediately with an HTTP error before accessing application tables.
+
+    Args:
+        tenant: Tenant UUID string extracted from the request path.
+        conn: Injected database connection from the application pool.
+
+    Returns:
+        AsyncConnection: Configured connection with tenant context set locally.
+
+    Raises:
+        HTTPException: If the tenant identifier is malformed, not found, or configuration fails.
+    """
     try:
         tenant_uuid = UUID(tenant)
     except (ValueError, AttributeError):
         raise HTTPException(
             status_code=400,
-            detail="Identificador de Tenant Invalido ou Bloqueado.",
+            detail="Invalid or unauthorized tenant identifier.",
         )
 
-    # Abre o cursor para parametrizar a transacao
     async with conn.cursor() as cur:
         try:
-            # Injeta a variavel de sessao de forma parametrizada
+            # Set session GUC locally for RLS row filtering (is_local=true ensures rollback on connection return)
             await cur.execute(
                 "SELECT set_config('app.current_tenant', %s, true)",
                 (str(tenant_uuid),),
             )
 
-            # Busca o schema dedicado no catalogo core
+            # Query tenant catalog in core schema to locate dedicated tenant schema
             await cur.execute(
                 "SELECT schema_name FROM core.tenants WHERE id = %s",
                 (str(tenant_uuid),),
             )
             row = await cur.fetchone()
-            # Se o tenant nao existir no catalogo, retorna 404
             if not row:
                 raise HTTPException(
                     status_code=404,
-                    detail="Tenant nao encontrado ou desativado.",
+                    detail="Tenant not found or inactive.",
                 )
 
             schema_name = row[0]
-            # Valida expressao regular do nome do schema como camada de defesa em profundidade
+            # Strict regex validation on schema name as defense-in-depth against SQL injection
             if not re.match(r"^tenant_[a-z0-9_]{1,40}$", schema_name):
                 raise HTTPException(
                     status_code=500,
-                    detail="Nome de schema do tenant invalido.",
+                    detail="Invalid tenant schema identifier.",
                 )
 
-            # Define o search_path da transacao de forma segura usando psycopg sql.Identifier
+            # Safe identifier formatting for search_path switching
             set_search_path_query = sql.SQL(
                 "SET LOCAL search_path TO {}, public"
             ).format(sql.Identifier(schema_name))
             await cur.execute(set_search_path_query)
 
-        # Captura eventuais erros de execucao do PostgreSQL
         except PsycopgError:
             raise HTTPException(
                 status_code=400,
-                detail="Erro ao inicializar contexto seguro do tenant.",
+                detail="Failed to initialize tenant security context.",
             )
 
-    # Retorna a conexao isolada para uso na rota
     return conn
