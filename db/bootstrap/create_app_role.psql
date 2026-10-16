@@ -1,0 +1,25 @@
+-- Bootstrap de infraestrutura: executar com superuser ANTES do dbmate.
+-- Uso: psql -v ON_ERROR_STOP=1 -v app_password="$APP_DB_PASSWORD" -f create_app_role.psql
+-- A senha vem sempre de variavel de ambiente, nunca do repositorio.
+
+-- Interrompe a execucao com erro se a senha do app nao foi informada
+\set ON_ERROR_STOP 1
+\if :{?app_password}
+\else
+DO $$ BEGIN RAISE EXCEPTION 'Informe -v app_password=<senha> (variavel APP_DB_PASSWORD).'; END $$;
+\endif
+
+-- Cria o role da aplicacao sem privilegios especiais, garantindo que o RLS sempre se aplique
+SELECT format(
+    'CREATE ROLE optime_app WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
+    :'app_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'optime_app')
+\gexec
+
+-- Reaplica senha e restricoes caso o role ja existisse (rotacao de senha idempotente)
+SELECT format(
+    'ALTER ROLE optime_app WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
+    :'app_password'
+)
+\gexec

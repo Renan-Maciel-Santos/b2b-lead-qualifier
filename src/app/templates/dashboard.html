@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optime Lead Qualifier | Dashboard Premium</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #24160B; /* Dark background matching brand */
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-main: #ffffff;
+            --text-muted: #abb8c3;
+            --brand-primary: #FAA668;
+            --brand-secondary: #ff6900;
+            --accent-glow: rgba(250, 166, 104, 0.4);
+            --qual-color: #00d084;
+            --disq-color: #cf2e2e;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-color);
+            color: var(--text-main);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(250, 166, 104, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(255, 105, 0, 0.15), transparent 25%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            width: 100%;
+            padding: 2rem 0;
+            text-align: center;
+            border-bottom: 1px solid var(--glass-border);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, var(--brand-primary), var(--brand-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            margin-top: 3rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 700;
+            margin: 0.5rem 0;
+        }
+
+        .stat-label {
+            font-size: 1rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .leads-table-container {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 1.2rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+
+        tr {
+            transition: background 0.2s ease;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .badge {
+            padding: 0.4rem 1rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-block;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+        }
+
+        .badge.qualified {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--qual-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge.disqualified {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--disq-color);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .audit-trail {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+
+        .audit-trail:hover {
+            white-space: normal;
+            background: rgba(0,0,0,0.5);
+            padding: 0.5rem;
+            border-radius: 8px;
+            position: absolute;
+            z-index: 100;
+            border: 1px solid var(--glass-border);
+            max-width: 400px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        }
+
+        .loading-spinner {
+            margin: 4rem auto;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: var(--brand-primary);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+            opacity: 0;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Optime Dashboard</h1>
+    </header>
+
+    <div class="container">
+        
+        <div id="loading" class="loading-spinner"></div>
+
+        <div id="content" style="display: none;">
+            <div class="stats-grid fade-in" style="animation-delay: 0.1s;">
+                <div class="stat-card">
+                    <div class="stat-label">Total Avaliados</div>
+                    <div class="stat-value" id="totalLeads">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Qualificados (Aptos)</div>
+                    <div class="stat-value" id="totalQualified" style="color: var(--qual-color);">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Desqualificados</div>
+                    <div class="stat-value" id="totalDisqualified" style="color: var(--disq-color);">0</div>
+                </div>
+            </div>
+
+            <div class="leads-table-container fade-in" style="animation-delay: 0.3s;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Telefone</th>
+                            <th>Status</th>
+                            <th>Score Final</th>
+                            <th>Data da Avaliação</th>
+                            <th>Trilha de Auditoria (Motivos)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leadsTableBody">
+                        <!-- Javascript vai injetar os leads aqui -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tenantId = "{{TENANT_ID}}";
+        
+        async function fetchLeads() {
+            try {
+                const response = await fetch(`/api/v1/${tenantId}/leads`);
+                const data = await response.json();
+                
+                const leads = data.leads || [];
+                
+                // Atualiza contadores
+                document.getElementById('totalLeads').innerText = leads.length;
+                document.getElementById('totalQualified').innerText = leads.filter(l => l.is_qualified).length;
+                document.getElementById('totalDisqualified').innerText = leads.filter(l => !l.is_qualified).length;
+
+                // Preenche a tabela
+                const tbody = document.getElementById('leadsTableBody');
+                tbody.innerHTML = '';
+                
+                leads.forEach(lead => {
+                    const row = document.createElement('tr');
+                    
+                    const date = new Date(lead.created_at).toLocaleString('pt-BR');
+                    
+                    let auditText = "Nenhuma regra reagiu";
+                    if(lead.audit_trail && lead.audit_trail.length > 0) {
+                        auditText = lead.audit_trail.join(" | ");
+                    }
+
+                    row.innerHTML = `
+                        <td style="font-weight: 600;">${lead.phone_number}</td>
+                        <td>
+                            <span class="badge ${lead.is_qualified ? 'qualified' : 'disqualified'}">
+                                ${lead.is_qualified ? 'QUALIFICADO' : 'DESQUALIFICADO'}
+                            </span>
+                        </td>
+                        <td><strong style="color: ${lead.final_score > 0 ? 'var(--qual-color)' : (lead.final_score < 0 ? 'var(--disq-color)' : 'white')}">${lead.final_score} pts</strong></td>
+                        <td style="color: var(--text-muted); font-size: 0.9rem;">${date}</td>
+                        <td><div class="audit-trail">${auditText}</div></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                // Tira o loading e mostra o conteudo
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+            } catch (error) {
+                console.error("Erro ao buscar leads:", error);
+                document.getElementById('loading').style.display = 'none';
+                alert("Erro ao conectar com o servidor. O RLS ou o Banco podem não estar acessíveis.");
+            }
+        }
+
+        // Inicia a busca assim que a pagina carrega
+        window.onload = fetchLeads;
+    </script>
+</body>
+</html>

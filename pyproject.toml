@@ -1,0 +1,31 @@
+[project]
+name = "nexus-lead-qualifier"
+version = "0.1.0"
+description = "Enterprise conversational lead qualification platform: multi-tenant PostgreSQL 17 + pgvector, deterministic scoring core, FastAPI and LLM edge."
+readme = "README.md"
+authors = [
+    { name = "Renan Maciel", email = "renan.gregar@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.143.0",
+    "jinja2>=3.1.6",
+    "openai>=3.26.1",
+    "psycopg[binary,pool]>=3.3.6",
+    "pydantic-settings>=2.15.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+nexus-lead-qualifier = "lead_qualifier:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.10",
+]

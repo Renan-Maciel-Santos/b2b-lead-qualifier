@@ -1,0 +1,15 @@
+# Configuracao do Caddy para producao na VPS com SSL/HTTPS automatico
+# Se a variavel DOMAIN for informada (ex: api.seudominio.com), o Caddy gera certificado Let's Encrypt
+# Caso contrario, atende em :80 para testes
+{$DOMAIN::80} {
+    # Encaminha todo o trafego HTTP para o container da API FastAPI
+    reverse_proxy api:8000 {
+        # Preserva os cabecalhos originais de requisicao do cliente
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Ativa compressao automatica de respostas
+    encode zstd gzip
+}

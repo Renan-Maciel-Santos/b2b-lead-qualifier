@@ -1,0 +1,101 @@
+services:
+  # Banco de dados relacional e vetorial com pgvector e RLS
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: optime_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Defina DB_ADMIN_PASSWORD no .env}
+      POSTGRES_DB: ${DB_NAME:-optime}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env}
+    ports:
+      # Permite conexoes locais ou do host
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - optime_pgdata:/var/lib/postgresql/data
+      - ./db/bootstrap:/docker-entrypoint-initdb.d:ro
+      - ./db:/db:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_NAME:-optime}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Executor automatico de migracoes executado antes de subir a API
+  migrator:
+    image: ghcr.io/amacneil/dbmate:2
+    container_name: optime_migrator
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-optime}?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    volumes:
+      - ./db:/db:ro
+    command: ["up"]
+
+  # Servico da aplicacao FastAPI (Optime Lead Qualifier)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nexus-lead-qualifier:latest
+    container_name: nexus_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      # Na rede interna do Docker o host do banco e o nome do servico postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    ports:
+      # Expoe a porta da API no host (util caso a VPS use Nginx existente ou acesso direto)
+      - "127.0.0.1:8000:8000"
+
+  # Proxy reverso Caddy para emissao e renovacao automatica de certificado HTTPS / SSL
+  caddy:
+    image: caddy:2-alpine
+    container_name: optime_caddy
+    restart: unless-stopped
+    profiles: ["prod", "proxy"]
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - optime_caddy_data:/data
+      - optime_caddy_config:/config
+
+  # Servico dbmate sob demanda para comandos manuais (up, rollback, status)
+  dbmate:
+    image: ghcr.io/amacneil/dbmate:2
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-optime}?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    volumes:
+      - ./db:/db:ro
+
+volumes:
+  optime_pgdata:
+  optime_caddy_data:
+  optime_caddy_config:
