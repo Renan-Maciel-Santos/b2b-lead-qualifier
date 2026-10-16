@@ -1,24 +1,24 @@
 # Importa o logger global do sistema
-from src.app.core.logger import logger
+from lead_qualifier.core.logger import logger
 
 # Importa as estruturas de dados de requisicao e resposta
-from src.app.core.schemas.conversation import TurnRequest, TurnResponse
+from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
 
 # Importa as regras de negocio do motor de scoring e a factory
-from src.app.core.scoring.strategy import (
+from lead_qualifier.core.scoring.strategy import (
     ExactMatchStrategy,
     KnockoutStrategy,
     build_strategies_from_rules,
 )
 
 # Importa o adaptador de extracao de slots da OpenAI
-from src.app.integrations.llm.openai_adapter import OpenAIAdapter
+from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 
 # Importa o repositorio de conversas
-from src.app.repositories.conversation_repo import ConversationRepository
+from lead_qualifier.repositories.conversation_repo import ConversationRepository
 
 # Importa o motor executor de pontuacao (Scoring)
-from src.app.services.scoring_service import ScoringService
+from lead_qualifier.services.scoring_service import ScoringService
 
 
 # Cria o servico responsavel por gerenciar as regras de negocio da maquina de estados do Chatbot

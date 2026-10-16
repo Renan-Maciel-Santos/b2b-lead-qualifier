@@ -4,7 +4,7 @@ import uuid
 import pytest
 
 # Importa o repositorio de conversas
-from src.app.repositories.conversation_repo import ConversationRepository
+from lead_qualifier.repositories.conversation_repo import ConversationRepository
 
 # Importa os identificadores e helper do conftest
 from tests.conftest import TENANT_DEMO, set_test_tenant_context

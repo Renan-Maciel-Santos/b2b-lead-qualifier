@@ -178,7 +178,7 @@ docker exec -i optime_db psql -U postgres -d optime -f /db/seeds/demo.sql
 
 ### 4. Start the Application
 ```bash
-uv run uvicorn src.app.api.main:app --reload
+uv run uvicorn lead_qualifier.api.main:app --reload
 ```
 
 ### 5. Open in Your Browser

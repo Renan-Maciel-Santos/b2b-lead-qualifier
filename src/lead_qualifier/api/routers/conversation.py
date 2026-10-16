@@ -7,16 +7,16 @@ from fastapi import APIRouter, Depends
 from psycopg import AsyncConnection
 
 # Importa o controller do webhook
-from src.app.controllers.webhook_controller import WebhookController
+from lead_qualifier.controllers.webhook_controller import WebhookController
 
 # Importa o logger estruturado
-from src.app.core.logger import logger
+from lead_qualifier.core.logger import logger
 
 # Importa os schemas de turno de conversa
-from src.app.core.schemas.conversation import TurnRequest, TurnResponse
+from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
 
 # Importa a dependencia de contexto seguro de tenant
-from src.app.core.tenant import get_tenant_connection
+from lead_qualifier.core.tenant import get_tenant_connection
 
 # Alias para compatibilidade com middlewares anteriores
 set_tenant_context = get_tenant_connection

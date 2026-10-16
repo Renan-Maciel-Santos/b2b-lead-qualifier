@@ -2,7 +2,7 @@
 import pytest
 
 # Importa o repositorio de conhecimento
-from src.app.repositories.knowledge_repo import KnowledgeRepository
+from lead_qualifier.repositories.knowledge_repo import KnowledgeRepository
 
 # Importa os identificadores e helper do conftest
 from tests.conftest import TENANT_DEMO, TENANT_INVASOR, set_test_tenant_context
