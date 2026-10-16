@@ -8,7 +8,7 @@ SELECT core.provision_tenant(
     'tenant_demo'
 );
 
--- Versao 1 das regras de scoring do tenant demo: B2B Enterprise ICP Matrix
+-- Active scoring rules for demo tenant
 INSERT INTO tenant_demo.scoring_rule_sets (tenant_id, version, rules, qualification_threshold, is_active)
 VALUES (
     '11111111-1111-1111-1111-111111111111',
@@ -28,3 +28,12 @@ VALUES (
     true
 )
 ON CONFLICT (tenant_id, version) DO NOTHING;
+
+-- Demo API key (raw: b2b_live_demo_acme_111111111111111111111111)
+INSERT INTO core.api_keys (tenant_id, key_hash, name)
+VALUES (
+    '11111111-1111-1111-1111-111111111111',
+    'c48f33e192081d5ac00cfb904661389f1ca84c35360ba4d21a003f8dd23aa72c',
+    'Acme Demo Default Key'
+)
+ON CONFLICT (key_hash) DO NOTHING;
