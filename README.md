@@ -1,4 +1,4 @@
-# Nexus Lead Qualifier
+# b2b-lead-qualifier
 
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.143+-009688)](https://fastapi.tiangolo.com/)
