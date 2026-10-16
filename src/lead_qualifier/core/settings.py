@@ -1,34 +1,58 @@
-# Importa a classe BaseSettings do pydantic_settings para carregar variaveis de ambiente
-from pydantic_settings import BaseSettings
+"""Application settings managed via pydantic-settings v2."""
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# Define a classe de configuracoes da aplicacao
 class Settings(BaseSettings):
-    # Define o ambiente da aplicacao (ex: development, production)
-    api_env: str = "development"
-    # Define o host da API
-    api_host: str = "0.0.0.0"
-    # Define a porta da API
-    api_port: int = 8000
-    
-    # Define o host do banco de dados
-    db_host: str
-    # Define a porta do banco de dados
-    db_port: int
-    # Define o usuario do banco de dados
-    db_user: str
-    # Define a senha do banco de dados
-    db_password: str
-    # Define o nome do banco de dados
-    db_name: str
-    
-    # Define a chave da OpenAI
-    openai_api_key: str
-    
-    # Define as propriedades de configuracao da classe
-    class Config:
-        # Informa para o Pydantic ler as variaveis do arquivo .env da raiz do projeto
-        env_file = ".env"
+    """Configuration settings for b2b-lead-qualifier.
 
-# Instancia a classe Settings para ser usada globalmente no projeto
-settings = Settings()
+    Attributes:
+        api_env: Current execution environment (development, staging, production).
+        api_host: Bind host for Uvicorn HTTP server.
+        api_port: Bind port for Uvicorn HTTP server.
+        db_host: PostgreSQL host address.
+        db_port: PostgreSQL port number.
+        db_name: PostgreSQL database name.
+        db_user: Application unprivileged user (no BYPASSRLS).
+        db_password: Application user password.
+        db_admin_user: Superuser for migrations and test provisioning.
+        db_admin_password: Superuser password.
+        db_pool_min: Minimum open connections in the pool.
+        db_pool_max: Maximum open connections in the pool.
+        openai_api_key: OpenAI API secret key for LLM adapter.
+        domain: Domain name for reverse proxy TLS certificate.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    api_env: str = "development"
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+
+    db_host: str = "127.0.0.1"
+    db_port: int = 5432
+    db_name: str = "b2b_lead_qualifier"
+    db_user: str = "app_user"
+    db_password: SecretStr = SecretStr("change-this-app-password")
+    db_admin_user: str = "postgres"
+    db_admin_password: SecretStr | None = None
+
+    db_pool_min: int = 1
+    db_pool_max: int = 10
+
+    openai_api_key: SecretStr = SecretStr("sk-dummy-key-for-test")
+
+    domain: str = ""
+
+    @property
+    def database_url(self) -> str:
+        """Construct PostgreSQL connection URL for the unprivileged application role."""
+        return (
+            f"postgresql://{self.db_user}:{self.db_password.get_secret_value()}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
