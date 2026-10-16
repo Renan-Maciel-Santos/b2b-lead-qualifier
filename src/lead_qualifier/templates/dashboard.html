@@ -7,16 +7,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #24160B; /* Dark background matching brand */
+            --bg-color: #0f172a;
             --glass-bg: rgba(255, 255, 255, 0.05);
             --glass-border: rgba(255, 255, 255, 0.1);
             --text-main: #ffffff;
-            --text-muted: #abb8c3;
-            --brand-primary: #FAA668;
-            --brand-secondary: #ff6900;
-            --accent-glow: rgba(250, 166, 104, 0.4);
-            --qual-color: #00d084;
-            --disq-color: #cf2e2e;
+            --text-muted: #94a3b8;
+            --brand-primary: #38bdf8;
+            --brand-secondary: #818cf8;
+            --accent-glow: rgba(56, 189, 248, 0.35);
+            --qual-color: #10b981;
+            --disq-color: #ef4444;
         }
 
         body {
@@ -26,8 +26,8 @@
             background: var(--bg-color);
             color: var(--text-main);
             background-image: 
-                radial-gradient(circle at 15% 50%, rgba(250, 166, 104, 0.15), transparent 25%),
-                radial-gradient(circle at 85% 30%, rgba(255, 105, 0, 0.15), transparent 25%);
+                radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.12), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(129, 140, 248, 0.12), transparent 25%);
             background-attachment: fixed;
             min-height: 100vh;
             display: flex;
@@ -37,20 +37,24 @@
 
         header {
             width: 100%;
-            padding: 2rem 0;
+            padding: 1.5rem 0;
             text-align: center;
             border-bottom: 1px solid var(--glass-border);
-            background: rgba(15, 23, 42, 0.8);
+            background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(12px);
             position: sticky;
             top: 0;
             z-index: 10;
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
         }
 
         h1 {
             margin: 0;
-            font-size: 2.5rem;
+            font-size: 2.2rem;
             font-weight: 700;
             background: linear-gradient(to right, var(--brand-primary), var(--brand-secondary));
             -webkit-background-clip: text;
@@ -58,13 +62,55 @@
             text-shadow: 0 0 20px var(--accent-glow);
         }
 
+        .auth-bar {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 999px;
+            padding: 0.4rem 0.6rem 0.4rem 1.2rem;
+            backdrop-filter: blur(8px);
+        }
+
+        .auth-bar input {
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.9rem;
+            width: 280px;
+            outline: none;
+        }
+
+        .auth-bar input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .auth-bar button {
+            background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
+            border: none;
+            color: #0f172a;
+            font-family: inherit;
+            font-weight: 600;
+            padding: 0.5rem 1.2rem;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .auth-bar button:hover {
+            opacity: 0.9;
+        }
+
         .container {
             width: 90%;
             max-width: 1200px;
-            margin-top: 3rem;
+            margin-top: 2rem;
             display: flex;
             flex-direction: column;
             gap: 2rem;
+            margin-bottom: 3rem;
         }
 
         .stats-grid {
@@ -84,19 +130,19 @@
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
             border-color: rgba(255, 255, 255, 0.2);
         }
 
         .stat-value {
-            font-size: 3rem;
+            font-size: 2.8rem;
             font-weight: 700;
             margin: 0.5rem 0;
         }
 
         .stat-label {
-            font-size: 1rem;
+            font-size: 0.9rem;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -123,7 +169,7 @@
         }
 
         th {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.04);
             color: var(--text-muted);
             font-weight: 600;
             text-transform: uppercase;
@@ -140,12 +186,11 @@
         }
 
         .badge {
-            padding: 0.4rem 1rem;
+            padding: 0.35rem 0.9rem;
             border-radius: 999px;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             font-weight: 600;
             display: inline-block;
-            box-shadow: 0 0 10px rgba(0,0,0,0.2);
         }
 
         .badge.qualified {
@@ -163,32 +208,26 @@
         .audit-trail {
             font-size: 0.85rem;
             color: var(--text-muted);
-            max-width: 300px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            cursor: pointer;
+            max-width: 380px;
+            line-height: 1.4;
         }
 
-        .audit-trail:hover {
-            white-space: normal;
-            background: rgba(0,0,0,0.5);
-            padding: 0.5rem;
-            border-radius: 8px;
-            position: absolute;
-            z-index: 100;
+        .auth-prompt {
+            background: var(--glass-bg);
             border: 1px solid var(--glass-border);
-            max-width: 400px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            backdrop-filter: blur(10px);
         }
 
         .loading-spinner {
-            margin: 4rem auto;
+            margin: 3rem auto;
             border: 4px solid rgba(255, 255, 255, 0.1);
             border-left-color: var(--brand-primary);
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
+            width: 44px;
+            height: 44px;
             animation: spin 1s linear infinite;
         }
 
@@ -196,56 +235,54 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease forwards;
-            opacity: 0;
-        }
-
-        @keyframes fadeIn {
-            to { opacity: 1; }
-        }
     </style>
 </head>
 <body>
 
     <header>
         <h1>B2B Lead Qualifier</h1>
+        <div class="auth-bar">
+            <input type="password" id="apiKeyInput" placeholder="Operator API Key (Bearer Token)" autocomplete="off">
+            <button id="connectBtn" type="button">Connect</button>
+        </div>
     </header>
 
     <div class="container">
-        
-        <div id="loading" class="loading-spinner"></div>
+        <div id="authPrompt" class="auth-prompt" style="display: none;">
+            <h2>Authentication Required</h2>
+            <p style="color: var(--text-muted);">Please enter a valid Operator API Key above to load lead qualification data.</p>
+        </div>
+
+        <div id="loading" class="loading-spinner" style="display: none;"></div>
 
         <div id="content" style="display: none;">
-            <div class="stats-grid fade-in" style="animation-delay: 0.1s;">
+            <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-label">Total Avaliados</div>
+                    <div class="stat-label">Total Leads</div>
                     <div class="stat-value" id="totalLeads">0</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Qualificados (Aptos)</div>
+                    <div class="stat-label">Qualified</div>
                     <div class="stat-value" id="totalQualified" style="color: var(--qual-color);">0</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Desqualificados</div>
+                    <div class="stat-label">Disqualified</div>
                     <div class="stat-value" id="totalDisqualified" style="color: var(--disq-color);">0</div>
                 </div>
             </div>
 
-            <div class="leads-table-container fade-in" style="animation-delay: 0.3s;">
+            <div class="leads-table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Telefone</th>
+                            <th>Phone</th>
                             <th>Status</th>
-                            <th>Score Final</th>
-                            <th>Data da Avaliação</th>
-                            <th>Trilha de Auditoria (Motivos)</th>
+                            <th>Final Score</th>
+                            <th>Evaluation Date</th>
+                            <th>Audit Trail</th>
                         </tr>
                     </thead>
                     <tbody id="leadsTableBody">
-                        <!-- Javascript vai injetar os leads aqui -->
                     </tbody>
                 </table>
             </div>
@@ -253,61 +290,131 @@
     </div>
 
     <script>
-        const tenantId = "{{TENANT_ID}}";
-        
-        async function fetchLeads() {
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const connectBtn = document.getElementById('connectBtn');
+        const authPrompt = document.getElementById('authPrompt');
+        const loading = document.getElementById('loading');
+        const content = document.getElementById('content');
+        const tableBody = document.getElementById('leadsTableBody');
+
+        const savedKey = sessionStorage.getItem('b2b_operator_key');
+        if (savedKey) {
+            apiKeyInput.value = savedKey;
+        }
+
+        connectBtn.addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if (!key) {
+                alert('Please enter an API key.');
+                return;
+            }
+            sessionStorage.setItem('b2b_operator_key', key);
+            fetchLeads(key);
+        });
+
+        async function fetchLeads(apiKey) {
+            if (!apiKey) {
+                authPrompt.style.display = 'block';
+                content.style.display = 'none';
+                loading.style.display = 'none';
+                return;
+            }
+
+            authPrompt.style.display = 'none';
+            loading.style.display = 'block';
+            content.style.display = 'none';
+
             try {
-                const response = await fetch(`/api/v1/${tenantId}/leads`);
-                const data = await response.json();
-                
-                const leads = data.leads || [];
-                
-                // Atualiza contadores
-                document.getElementById('totalLeads').innerText = leads.length;
-                document.getElementById('totalQualified').innerText = leads.filter(l => l.is_qualified).length;
-                document.getElementById('totalDisqualified').innerText = leads.filter(l => !l.is_qualified).length;
-
-                // Preenche a tabela
-                const tbody = document.getElementById('leadsTableBody');
-                tbody.innerHTML = '';
-                
-                leads.forEach(lead => {
-                    const row = document.createElement('tr');
-                    
-                    const date = new Date(lead.created_at).toLocaleString('pt-BR');
-                    
-                    let auditText = "Nenhuma regra reagiu";
-                    if(lead.audit_trail && lead.audit_trail.length > 0) {
-                        auditText = lead.audit_trail.join(" | ");
+                const response = await fetch('/v1/leads', {
+                    headers: {
+                        'Authorization': 'Bearer ' + apiKey
                     }
-
-                    row.innerHTML = `
-                        <td style="font-weight: 600;">${lead.phone_number}</td>
-                        <td>
-                            <span class="badge ${lead.is_qualified ? 'qualified' : 'disqualified'}">
-                                ${lead.is_qualified ? 'QUALIFICADO' : 'DESQUALIFICADO'}
-                            </span>
-                        </td>
-                        <td><strong style="color: ${lead.final_score > 0 ? 'var(--qual-color)' : (lead.final_score < 0 ? 'var(--disq-color)' : 'white')}">${lead.final_score} pts</strong></td>
-                        <td style="color: var(--text-muted); font-size: 0.9rem;">${date}</td>
-                        <td><div class="audit-trail">${auditText}</div></td>
-                    `;
-                    tbody.appendChild(row);
                 });
 
-                // Tira o loading e mostra o conteudo
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('content').style.display = 'block';
+                if (response.status === 401) {
+                    loading.style.display = 'none';
+                    authPrompt.style.display = 'block';
+                    alert('Invalid or revoked API key.');
+                    return;
+                }
 
-            } catch (error) {
-                console.error("Erro ao buscar leads:", error);
-                document.getElementById('loading').style.display = 'none';
-                alert("Erro ao conectar com o servidor. O RLS ou o Banco podem não estar acessíveis.");
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
+                const data = await response.json();
+                const leads = data.leads || [];
+
+                document.getElementById('totalLeads').textContent = String(leads.length);
+                document.getElementById('totalQualified').textContent = String(leads.filter(l => l.is_qualified).length);
+                document.getElementById('totalDisqualified').textContent = String(leads.filter(l => !l.is_qualified).length);
+
+                // Safe DOM building: textContent and createElement ONLY to strictly prevent XSS
+                while (tableBody.firstChild) {
+                    tableBody.removeChild(tableBody.firstChild);
+                }
+
+                leads.forEach(lead => {
+                    const tr = document.createElement('tr');
+
+                    // Phone column
+                    const tdPhone = document.createElement('td');
+                    tdPhone.style.fontWeight = '600';
+                    tdPhone.textContent = String(lead.phone_number || '');
+                    tr.appendChild(tdPhone);
+
+                    // Status column
+                    const tdStatus = document.createElement('td');
+                    const badge = document.createElement('span');
+                    badge.className = 'badge ' + (lead.is_qualified ? 'qualified' : 'disqualified');
+                    badge.textContent = lead.is_qualified ? 'QUALIFIED' : 'DISQUALIFIED';
+                    tdStatus.appendChild(badge);
+                    tr.appendChild(tdStatus);
+
+                    // Score column
+                    const tdScore = document.createElement('td');
+                    const strongScore = document.createElement('strong');
+                    const score = Number(lead.final_score) || 0;
+                    strongScore.style.color = score > 0 ? 'var(--qual-color)' : (score < 0 ? 'var(--disq-color)' : 'white');
+                    strongScore.textContent = score + ' pts';
+                    tdScore.appendChild(strongScore);
+                    tr.appendChild(tdScore);
+
+                    // Date column
+                    const tdDate = document.createElement('td');
+                    tdDate.style.color = 'var(--text-muted)';
+                    tdDate.style.fontSize = '0.9rem';
+                    tdDate.textContent = lead.created_at ? new Date(lead.created_at).toLocaleString('pt-BR') : '-';
+                    tr.appendChild(tdDate);
+
+                    // Audit trail column
+                    const tdAudit = document.createElement('td');
+                    const auditDiv = document.createElement('div');
+                    auditDiv.className = 'audit-trail';
+                    const auditTrail = Array.isArray(lead.audit_trail) ? lead.audit_trail : [];
+                    auditDiv.textContent = auditTrail.length > 0 ? auditTrail.join(' | ') : 'No rules triggered';
+                    tdAudit.appendChild(auditDiv);
+                    tr.appendChild(tdAudit);
+
+                    tableBody.appendChild(tr);
+                });
+
+                loading.style.display = 'none';
+                content.style.display = 'block';
+
+            } catch (err) {
+                console.error('Error fetching leads:', err);
+                loading.style.display = 'none';
+                authPrompt.style.display = 'block';
+                alert('Failed to connect to the API. Verify your API key and connection.');
             }
         }
 
-        // Inicia a busca assim que a pagina carrega
-        window.onload = fetchLeads;
+        if (savedKey) {
+            fetchLeads(savedKey);
+        } else {
+            authPrompt.style.display = 'block';
+        }
     </script>
 </body>
 </html>
