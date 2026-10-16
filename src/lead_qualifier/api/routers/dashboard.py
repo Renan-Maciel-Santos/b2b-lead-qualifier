@@ -10,7 +10,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 # Importa a dependencia de contexto seguro de tenant
-from src.app.core.tenant import get_tenant_connection
+from lead_qualifier.core.tenant import get_tenant_connection
 
 # Instancia o roteador do Dashboard
 router = APIRouter()

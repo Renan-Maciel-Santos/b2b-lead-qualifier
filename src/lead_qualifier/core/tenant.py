@@ -10,7 +10,7 @@ from psycopg import AsyncConnection, sql
 from psycopg.errors import Error as PsycopgError
 
 # Importa o pool de conexoes
-from src.app.core.database import get_db_connection
+from lead_qualifier.core.database import get_db_connection
 
 
 # Dependencia que valida o tenant, injeta o RLS e define o search_path com o schema do cliente

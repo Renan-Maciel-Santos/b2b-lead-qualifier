@@ -47,4 +47,4 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=5s \
     CMD curl -f http://127.0.0.1:8000/health || exit 1
 
 # Inicializa o servidor ASGI Uvicorn em modo de producao
-CMD ["uvicorn", "src.app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uvicorn", "lead_qualifier.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

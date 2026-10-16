@@ -5,13 +5,13 @@ import asyncio
 import json
 
 # Importa as regras de negocio (Eliminatoria e de Bonificacao) criadas no Passo 6
-from src.app.core.scoring.strategy import ExactMatchStrategy, KnockoutStrategy
+from lead_qualifier.core.scoring.strategy import ExactMatchStrategy, KnockoutStrategy
 
 # Importa o adaptador LLM estruturado criado no Passo 7
-from src.app.integrations.llm.openai_adapter import OpenAIAdapter
+from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 
 # Importa o motor executor de Scoring criado no Passo 6
-from src.app.services.scoring_service import ScoringService
+from lead_qualifier.services.scoring_service import ScoringService
 
 
 # Funcao sincrona auxiliar para carregar o golden dataset
