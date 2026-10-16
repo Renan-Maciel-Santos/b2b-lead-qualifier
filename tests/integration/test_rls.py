@@ -1,8 +1,8 @@
 """Integration tests validating multi-tenant PostgreSQL Row-Level Security isolation."""
 
+import pytest
 from psycopg import AsyncConnection
 from psycopg.errors import Error as PsycopgError
-import pytest
 
 from tests.conftest import TENANT_DEMO, TENANT_INVASOR, set_test_tenant_context
 

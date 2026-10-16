@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run Ruff Lint
+        run: uv run ruff check .
+
+      - name: Run Ruff Format Check
+        run: uv run ruff format --check .
+
+      - name: Run Mypy Typecheck
+        run: uv run mypy src tests
+
+  test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: b2b_lead_qualifier
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Install dbmate
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          sudo chmod +x /usr/local/bin/dbmate
+
+      - name: Bootstrap and Migrate Database
+        env:
+          DATABASE_URL: postgresql://postgres:secret@127.0.0.1:5432/b2b_lead_qualifier?sslmode=disable
+        run: |
+          PGPASSWORD=secret psql -h 127.0.0.1 -U postgres -d b2b_lead_qualifier -f db/bootstrap/create_app_role.psql
+          dbmate --migrations-dir db/migrations up
+          PGPASSWORD=secret psql -h 127.0.0.1 -U postgres -d b2b_lead_qualifier -f db/seeds/demo.sql
+
+      - name: Run Tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_NAME: b2b_lead_qualifier
+          DB_USER: app_user
+          DB_PASSWORD: secret
+          DB_ADMIN_USER: postgres
+          DB_ADMIN_PASSWORD: secret
+        run: uv run pytest

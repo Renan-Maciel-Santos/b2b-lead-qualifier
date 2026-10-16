@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 from lead_qualifier.core.scoring.strategy import ExactMatchStrategy, KnockoutStrategy
 from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
@@ -16,7 +16,7 @@ def load_golden_dataset() -> list[dict[str, Any]]:
         list[dict[str, Any]]: Parsed golden dataset cases.
     """
     with open("data/golden_dataset.json", encoding="utf-8") as f:
-        return json.load(f)
+        return cast(list[dict[str, Any]], json.load(f))
 
 
 async def run_evaluation() -> None:
@@ -47,9 +47,13 @@ async def run_evaluation() -> None:
 
         if matched:
             correct_predictions += 1
-            print(f"[OK] Prediction matched! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})")
+            print(
+                f"[OK] Prediction matched! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})"
+            )
         else:
-            print(f"[FAIL] Prediction mismatch! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})")
+            print(
+                f"[FAIL] Prediction mismatch! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})"
+            )
             print(f"Machine reasons: {result['reasons']}")
             print(f"Extracted slots: {lead_data}")
 

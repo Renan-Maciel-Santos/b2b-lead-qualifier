@@ -1,16 +1,16 @@
 """Pytest fixtures and configuration for real PostgreSQL integration testing."""
 
 import asyncio
-from collections.abc import AsyncIterator
 import os
 import sys
+from collections.abc import AsyncIterator
 
 # Windows selector loop policy is required for psycopg async event loop support on Windows
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from psycopg import AsyncConnection, sql
 import pytest_asyncio
+from psycopg import AsyncConnection, sql
 
 # Deterministic demo and attacker tenant identifiers
 TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
@@ -35,9 +35,7 @@ async def set_test_tenant_context(
             (tenant_id,),
         )
         await cur.execute(
-            sql.SQL("SET LOCAL search_path TO {}, public").format(
-                sql.Identifier(schema_name)
-            )
+            sql.SQL("SET LOCAL search_path TO {}, public").format(sql.Identifier(schema_name))
         )
 
 
@@ -47,7 +45,7 @@ async def db_admin() -> AsyncIterator[AsyncConnection]:
     admin_user = os.getenv("DB_ADMIN_USER", "postgres")
     admin_pwd = os.getenv("DB_ADMIN_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
-    conn_str = f"postgresql://{admin_user}:{admin_pwd}@127.0.0.1:5432/{db_name}"
+    conn_str = f"postgresql://{admin_user}:{admin_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn
 
@@ -92,6 +90,6 @@ async def db_app() -> AsyncIterator[AsyncConnection]:
     app_user = os.getenv("DB_USER", "app_user")
     app_pwd = os.getenv("DB_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
-    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}"
+    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn

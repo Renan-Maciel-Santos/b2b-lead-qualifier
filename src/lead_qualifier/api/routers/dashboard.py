@@ -15,13 +15,11 @@ router = APIRouter(tags=["Dashboard"])
 
 @router.get("/api/v1/{tenant}/leads")
 async def get_leads(
-    tenant: str,
     conn: Annotated[AsyncConnection, Depends(get_tenant_connection)],
 ) -> dict[str, Any]:
     """Retrieve the most recent lead qualification scores for the authenticated tenant.
 
     Args:
-        tenant: Unique tenant identifier from URL path.
         conn: Injected database connection pre-configured with tenant RLS context.
 
     Returns:
@@ -30,9 +28,9 @@ async def get_leads(
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
             """
-            SELECT id, phone_number, final_score, is_qualified, audit_trail, created_at 
-            FROM scoring_results 
-            ORDER BY created_at DESC 
+            SELECT id, phone_number, final_score, is_qualified, audit_trail, created_at
+            FROM scoring_results
+            ORDER BY created_at DESC
             LIMIT 100
             """
         )
@@ -61,8 +59,8 @@ def render_dashboard(tenant: str) -> str:
         with open(template_path, encoding="utf-8") as file:
             html_content = file.read()
             return html_content.replace("{{TENANT_ID}}", tenant)
-    except FileNotFoundError:
+    except FileNotFoundError as err:
         raise HTTPException(
             status_code=404,
             detail="Dashboard template file not found.",
-        )
+        ) from err

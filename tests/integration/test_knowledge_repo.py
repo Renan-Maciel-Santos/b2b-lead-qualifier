@@ -1,7 +1,7 @@
 """Integration tests for pgvector semantic search and RLS isolation on knowledge chunks."""
 
-from psycopg import AsyncConnection
 import pytest
+from psycopg import AsyncConnection
 
 from lead_qualifier.repositories.knowledge_repo import KnowledgeRepository
 from tests.conftest import TENANT_DEMO, TENANT_INVASOR, set_test_tenant_context
