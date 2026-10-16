@@ -35,7 +35,7 @@ class JSONFormatter(logging.Formatter):
 # Cria a funcao para inicializar e configurar o logger global
 def setup_logger() -> logging.Logger:
     # Cria uma instancia do logger com o nome da aplicacao
-    logger = logging.getLogger("optime_app")
+    logger = logging.getLogger("lead_qualifier")
     # Define o nivel de log padrao como INFO
     logger.setLevel(logging.INFO)
     

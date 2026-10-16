@@ -6,7 +6,7 @@
 set -euo pipefail
 
 echo "======================================================"
-echo " Optime Lead Qualifier - Setup de VPS Linux (Docker)"
+echo " B2B Lead Qualifier - Setup de VPS Linux (Docker)"
 echo "======================================================"
 
 # Verifica se o script esta rodando como root

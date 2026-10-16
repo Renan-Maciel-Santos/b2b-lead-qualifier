@@ -1,10 +1,10 @@
--- Seed de DESENVOLVIMENTO: nunca executar em producao.
--- Uso: docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d optime -f /db/seeds/demo.sql
+-- Development seed: do not run in production.
+-- Usage: docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
 
--- Provisiona o tenant demonstrativo com seu schema dedicado (idempotente)
-SELECT optime_core.provision_tenant(
+-- Provision demo tenant (Acme Corp) with dedicated schema
+SELECT core.provision_tenant(
     '11111111-1111-1111-1111-111111111111',
-    'Nexus Enterprise (Demo)',
+    'Acme Corp (Demo)',
     'tenant_demo'
 );
 

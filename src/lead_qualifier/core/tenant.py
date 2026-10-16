@@ -31,15 +31,15 @@ async def get_tenant_connection(
     # Abre o cursor para parametrizar a transacao
     async with conn.cursor() as cur:
         try:
-            # Seta a variavel de sessao de forma 100% parametrizada (evita SQL injection)
+            # Injeta a variavel de sessao de forma parametrizada
             await cur.execute(
-                "SELECT set_config('optime.current_tenant', %s, true)",
+                "SELECT set_config('app.current_tenant', %s, true)",
                 (str(tenant_uuid),),
             )
 
-            # Busca o schema dedicado cadastrado para o tenant no catalogo global
+            # Busca o schema dedicado no catalogo core
             await cur.execute(
-                "SELECT schema_name FROM optime_core.tenants WHERE id = %s",
+                "SELECT schema_name FROM core.tenants WHERE id = %s",
                 (str(tenant_uuid),),
             )
             row = await cur.fetchone()

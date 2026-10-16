@@ -37,7 +37,7 @@ docker compose run --rm dbmate up
 # Se o parametro --seed foi passado, executa o seed de desenvolvimento/demo
 if [ "${1:-}" = "--seed" ]; then
     echo "Populando dados de seed..."
-    docker compose exec -T postgres psql -U "${DB_ADMIN_USER:-postgres}" -d "${DB_NAME:-optime}" -f /db/seeds/demo.sql || true
+    docker compose exec -T postgres psql -U "${DB_ADMIN_USER:-postgres}" -d "${DB_NAME:-b2b_lead_qualifier}" -f /db/seeds/demo.sql || true
 fi
 
 # Reinicia os containers mantendo os volumes de dados intactos
@@ -75,7 +75,7 @@ if [ "$HEALTHY" = true ]; then
     docker image prune -f > /dev/null 2>&1 || true
 else
     echo "ERRO: A API nao respondeu ao healthcheck apos $MAX_RETRIES tentativas."
-    echo "Logs do container optime_api:"
+    echo "Logs do container b2b_api:"
     docker compose logs --tail=50 api
     exit 1
 fi

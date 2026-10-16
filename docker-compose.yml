@@ -1,50 +1,49 @@
 services:
-  # Banco de dados relacional e vetorial com pgvector e RLS
+  # Relational and vector database running PostgreSQL 17 with pgvector and strict RLS
   postgres:
     image: pgvector/pgvector:pg17
-    container_name: optime_db
+    container_name: b2b_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_ADMIN_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Defina DB_ADMIN_PASSWORD no .env}
-      POSTGRES_DB: ${DB_NAME:-optime}
-      APP_DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Set DB_ADMIN_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-b2b_lead_qualifier}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
-      # Permite conexoes locais ou do host
       - "127.0.0.1:5432:5432"
     volumes:
-      - optime_pgdata:/var/lib/postgresql/data
+      - b2b_pgdata:/var/lib/postgresql/data
       - ./db/bootstrap:/docker-entrypoint-initdb.d:ro
       - ./db:/db:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_NAME:-optime}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d ${DB_NAME:-b2b_lead_qualifier}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Executor automatico de migracoes executado antes de subir a API
+  # Automated migration runner executed before starting the API
   migrator:
     image: ghcr.io/amacneil/dbmate:2
-    container_name: optime_migrator
+    container_name: b2b_migrator
     restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-optime}?sslmode=disable
+      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-b2b_lead_qualifier}?sslmode=disable
       DBMATE_MIGRATIONS_DIR: /db/migrations
       DBMATE_NO_DUMP_SCHEMA: "true"
     volumes:
       - ./db:/db:ro
     command: ["up"]
 
-  # Servico da aplicacao FastAPI (Optime Lead Qualifier)
+  # FastAPI application service (B2B Lead Qualifier)
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nexus-lead-qualifier:latest
-    container_name: nexus_api
+    image: b2b-lead-qualifier:latest
+    container_name: b2b_api
     restart: unless-stopped
     depends_on:
       postgres:
@@ -54,17 +53,15 @@ services:
     env_file:
       - .env
     environment:
-      # Na rede interna do Docker o host do banco e o nome do servico postgres
       DB_HOST: postgres
       DB_PORT: 5432
     ports:
-      # Expoe a porta da API no host (util caso a VPS use Nginx existente ou acesso direto)
       - "127.0.0.1:8000:8000"
 
-  # Proxy reverso Caddy para emissao e renovacao automatica de certificado HTTPS / SSL
+  # Caddy reverse proxy for automatic Let's Encrypt TLS
   caddy:
     image: caddy:2-alpine
-    container_name: optime_caddy
+    container_name: b2b_caddy
     restart: unless-stopped
     profiles: ["prod", "proxy"]
     depends_on:
@@ -78,10 +75,10 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - optime_caddy_data:/data
-      - optime_caddy_config:/config
+      - b2b_caddy_data:/data
+      - b2b_caddy_config:/config
 
-  # Servico dbmate sob demanda para comandos manuais (up, rollback, status)
+  # On-demand dbmate service for manual migration commands (up, rollback, status)
   dbmate:
     image: ghcr.io/amacneil/dbmate:2
     profiles: ["tools"]
@@ -89,13 +86,13 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-optime}?sslmode=disable
+      DATABASE_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@postgres:5432/${DB_NAME:-b2b_lead_qualifier}?sslmode=disable
       DBMATE_MIGRATIONS_DIR: /db/migrations
       DBMATE_NO_DUMP_SCHEMA: "true"
     volumes:
       - ./db:/db:ro
 
 volumes:
-  optime_pgdata:
-  optime_caddy_data:
-  optime_caddy_config:
+  b2b_pgdata:
+  b2b_caddy_data:
+  b2b_caddy_config:
