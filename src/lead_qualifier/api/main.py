@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     await close_db_pool()
 
 # Instancia a aplicacao principal do FastAPI, definindo o titulo e atrelando o ciclo de vida
-app = FastAPI(title="Optime Lead Qualifier", lifespan=lifespan)
+app = FastAPI(title="B2B Lead Qualifier", lifespan=lifespan)
 
 # Adiciona nosso interceptador de erros global, pegando qualquer Exception basica (Erro 500)
 app.add_exception_handler(Exception, global_exception_handler)

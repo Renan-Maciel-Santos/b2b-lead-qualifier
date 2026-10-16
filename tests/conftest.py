@@ -14,7 +14,7 @@ import pytest_asyncio
 # Importa a conexao assincrona e modulos SQL do psycopg
 from psycopg import AsyncConnection, sql
 
-# Define o tenant ID oficial do ambiente demo (Nexus)
+# Demo environment tenant ID (Acme Corp)
 TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
 # Define o tenant ID do invasor simulado
 TENANT_INVASOR = "22222222-2222-2222-2222-222222222222"
@@ -26,11 +26,11 @@ async def set_test_tenant_context(
     tenant_id: str,
     schema_name: str,
 ):
-    """Configura o optime.current_tenant e search_path de forma parametrizada na sessao de teste."""
+    """Configura o app.current_tenant e search_path de forma parametrizada na sessao de teste."""
     async with conn.cursor() as cur:
         # Injeta o UUID no contexto de sessao RLS
         await cur.execute(
-            "SELECT set_config('optime.current_tenant', %s, true)",
+            "SELECT set_config('app.current_tenant', %s, true)",
             (tenant_id,),
         )
         # Seta o search_path de forma segura para o schema do tenant
@@ -47,7 +47,7 @@ async def db_admin():
     """Conexao de superuser para operacoes administrativas e de preparacao de dados."""
     admin_user = os.getenv("DB_ADMIN_USER", "postgres")
     admin_pwd = os.getenv("DB_ADMIN_PASSWORD", "secret")
-    db_name = os.getenv("DB_NAME", "optime")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
     conn_str = f"postgresql://{admin_user}:{admin_pwd}@127.0.0.1:5432/{db_name}"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn
@@ -60,12 +60,12 @@ async def setup_test_tenants(db_admin):
     async with db_admin.cursor() as cur:
         # Provisiona o tenant demonstrativo (tenant_demo)
         await cur.execute(
-            "SELECT optime_core.provision_tenant(%s, %s, %s)",
-            (TENANT_DEMO, "Nexus Enterprise (Demo)", "tenant_demo"),
+            "SELECT core.provision_tenant(%s, %s, %s)",
+            (TENANT_DEMO, "Acme Corp (Demo)", "tenant_demo"),
         )
         # Provisiona o tenant invasor (tenant_invasor) para testes de barreira RLS
         await cur.execute(
-            "SELECT optime_core.provision_tenant(%s, %s, %s)",
+            "SELECT core.provision_tenant(%s, %s, %s)",
             (TENANT_INVASOR, "Tenant Invasor", "tenant_invasor"),
         )
         # Garante regra ativa para o tenant demo
@@ -91,13 +91,13 @@ async def setup_test_tenants(db_admin):
         await db_admin.commit()
 
 
-# Fixture restrita da aplicacao (optime_app) sem BYPASSRLS
+# Fixture restrita da aplicacao (app_user) sem BYPASSRLS
 @pytest_asyncio.fixture
 async def db_app():
     """Conexao restrita da aplicacao onde o RLS sempre se aplica obrigatoriamente."""
-    app_user = os.getenv("DB_USER", "optime_app")
+    app_user = os.getenv("DB_USER", "app_user")
     app_pwd = os.getenv("DB_PASSWORD", "secret")
-    db_name = os.getenv("DB_NAME", "optime")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
     conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn

@@ -26,7 +26,7 @@ async def test_knowledge_vector_search_and_rls(db_app):
     # Insere um fragmento de apresentacao institucional de forma idempotente
     await repo.insert_chunk(
         title="Enterprise Knowledge Base",
-        content="A Nexus e uma plataforma de infraestrutura B2B e IA conversacional para empresas de alto crescimento.",
+        content="A Acme Corp e uma plataforma de infraestrutura B2B e IA conversacional para empresas de alto crescimento.",
         embedding=test_vector,
         embedding_model="text-embedding-3-small",
         metadata={"origem": "whitepaper.pdf"},

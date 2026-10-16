@@ -15,7 +15,7 @@
 
 Most conversational AI bots fail in production because they rely on generative LLMs to make business decisions. This leads to **hallucinations, non-deterministic scores, compliance violations, and zero auditability**.
 
-**Nexus Lead Qualifier enforces a strict separation of concerns:**
+**B2B Lead Qualifier enforces a strict separation of concerns:**
 1. **Probabilistic Edge (LLM):** The language model *only* listens to WhatsApp chats and extracts structured slots into strongly-typed Pydantic schemas. It never decides points, eligibility, or qualification.
 2. **Deterministic Core (Python + PostgreSQL):** The business rules, state machine transitions, knockout criteria, and cumulative scores run in pure, predictable Python services backed by ACID database transactions.
 3. **Fail-Closed Multi-Tenancy:** Hardened with PostgreSQL 17 Row-Level Security (`FORCE RLS`), composite foreign keys `(tenant_id, id)`, and non-superuser application connections without `BYPASSRLS`.
@@ -59,7 +59,7 @@ flowchart TD
 ### 1. True Multi-Tenancy with PostgreSQL 17 RLS & Composite FKs
 - **Zero data bleeding:** Every customer schema (`tenant_{name}`) operates under PostgreSQL 17 Row-Level Security (`FORCE ROW LEVEL SECURITY`).
 - **Composite Foreign Keys:** All entity relationships enforce `(tenant_id, id)` foreign keys, preventing a tenant from referencing another tenant's records even if UUIDs are guessed.
-- **Fail-Closed Session Context:** The app connects as an unprivileged user (`optime_app`) with no `BYPASSRLS`. If tenant context is missing, the query immediately returns `0` rows.
+- **Fail-Closed Session Context:** The app connects as an unprivileged user (`app_user`) with no `BYPASSRLS`. If tenant context is missing, the query immediately returns `0` rows.
 
 ### 2. Deterministic Scoring Engine (Strategy Pattern)
 - **Knockout Rules (Immediate Disqualification):** Instant rejection for out-of-ICP profiles (e.g., students, interns, zero budget).
@@ -132,8 +132,8 @@ Content-Type: application/json
 # Database Connection (PostgreSQL 17 + pgvector)
 DB_HOST=127.0.0.1
 DB_PORT=5432
-DB_NAME=optime
-DB_USER=optime_app
+DB_NAME=b2b_lead_qualifier
+DB_USER=app_user
 DB_PASSWORD=your-secure-app-password
 DB_ADMIN_USER=postgres
 DB_ADMIN_PASSWORD=your-secure-admin-password
@@ -173,7 +173,7 @@ docker compose up -d postgres
 docker compose --profile tools run --rm dbmate up
 
 # Seed demo tenant with active B2B scoring rules
-docker exec -i optime_db psql -U postgres -d optime -f /db/seeds/demo.sql
+docker exec -i b2b_db psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
 ```
 
 ### 4. Start the Application

@@ -14,7 +14,7 @@ async def test_rls_fail_closed_without_tenant(db_app):
     """Garante que consultas sem contexto de tenant retornem zero linhas (fail-closed)."""
     async with db_app.cursor() as cur:
         # Consulta tabela global de tenants sem definir a sessao
-        await cur.execute("SELECT * FROM optime_core.tenants")
+        await cur.execute("SELECT * FROM core.tenants")
         rows = await cur.fetchall()
         # O RLS deve bloquear a visibilidade de todas as linhas
         assert len(rows) == 0
@@ -28,7 +28,7 @@ async def test_rls_isolates_tenant_data(db_app):
 
     async with db_app.cursor() as cur:
         # Consulta os tenants visiveis
-        await cur.execute("SELECT id, name FROM optime_core.tenants")
+        await cur.execute("SELECT id, name FROM core.tenants")
         tenants = await cur.fetchall()
         # Deve enxergar apenas o seu proprio tenant
         assert len(tenants) == 1

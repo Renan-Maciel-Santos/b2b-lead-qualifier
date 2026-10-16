@@ -9,17 +9,24 @@
 DO $$ BEGIN RAISE EXCEPTION 'Informe -v app_password=<senha> (variavel APP_DB_PASSWORD).'; END $$;
 \endif
 
--- Cria o role da aplicacao sem privilegios especiais, garantindo que o RLS sempre se aplique
+-- Cria o role da aplicacao app_user sem privilegios especiais (sem BYPASSRLS)
+SELECT format(
+    'CREATE ROLE app_user WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
+    :'app_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'app_user')
+\gexec
+
+SELECT format(
+    'ALTER ROLE app_user WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
+    :'app_password'
+)
+\gexec
+
+-- Cria optime_app temporariamente se necessario para a primeira migracao
 SELECT format(
     'CREATE ROLE optime_app WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
     :'app_password'
 )
-WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'optime_app')
-\gexec
-
--- Reaplica senha e restricoes caso o role ja existisse (rotacao de senha idempotente)
-SELECT format(
-    'ALTER ROLE optime_app WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
-    :'app_password'
-)
+WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'optime_app' OR rolname = 'app_user')
 \gexec
