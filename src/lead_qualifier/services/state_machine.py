@@ -1,6 +1,7 @@
 """Conversational state machine service orchestrating dialogue, LLM extraction, and scoring."""
 
 from lead_qualifier.core.logger import logger
+from lead_qualifier.core.masking import mask_phone_number
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
 from lead_qualifier.core.scoring.strategy import (
     ExactMatchStrategy,
@@ -71,7 +72,7 @@ class StateMachineService:
             TurnResponse: System reply message, conversation state, and completion flag.
         """
         logger.info(
-            f"Processing turn for lead {request.phone_number} (Msg ID: {request.message_id})"
+            f"Processing turn for lead {mask_phone_number(request.phone_number)} (Msg ID: {request.message_id})"
         )
 
         # Reject duplicated messages immediately based on the WhatsApp message ID
@@ -97,7 +98,9 @@ class StateMachineService:
 
         # Immediate disqualification branch
         if final_score < -9000:
-            logger.warning(f"Lead {request.phone_number} disqualified immediately.")
+            logger.warning(
+                f"Lead {mask_phone_number(request.phone_number)} disqualified immediately."
+            )
             if rule_set_id:
                 await self.repo.save_scoring_result(
                     phone_number=request.phone_number,
@@ -115,7 +118,7 @@ class StateMachineService:
         # Qualification completed branch
         if is_qualified or (slots.role is not None and slots.revenue is not None):
             logger.info(
-                f"Lead {request.phone_number} completed qualification with score {final_score}."
+                f"Lead {mask_phone_number(request.phone_number)} completed qualification with score {final_score}."
             )
             if rule_set_id:
                 await self.repo.save_scoring_result(
