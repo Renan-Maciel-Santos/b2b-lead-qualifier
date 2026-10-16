@@ -3,17 +3,24 @@
 import os
 from typing import Annotated, Any
 
+import jinja2
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from lead_qualifier.core.tenant import get_tenant_connection
+from lead_qualifier.core.security import get_tenant_connection
 
 router = APIRouter(tags=["Dashboard"])
 
+template_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "templates"))
+jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(template_dir),
+    autoescape=True,
+)
 
-@router.get("/api/v1/{tenant}/leads")
+
+@router.get("/v1/leads")
 async def get_leads(
     conn: Annotated[AsyncConnection, Depends(get_tenant_connection)],
 ) -> dict[str, Any]:
@@ -38,28 +45,20 @@ async def get_leads(
         return {"leads": leads}
 
 
-@router.get("/dashboard/{tenant}", response_class=HTMLResponse)
-def render_dashboard(tenant: str) -> str:
-    """Render the dashboard HTML interface configured for the target tenant.
-
-    Args:
-        tenant: Unique tenant identifier from URL path.
+@router.get("/dashboard", response_class=HTMLResponse)
+def render_dashboard() -> str:
+    """Render the dashboard HTML interface with strict Jinja2 autoescape enabled.
 
     Returns:
-        HTMLResponse: Rendered HTML page.
+        HTMLResponse: Rendered HTML page with client-side key authentication.
 
     Raises:
         HTTPException: If template file is missing.
     """
-    template_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "templates", "dashboard.html"
-    )
-
     try:
-        with open(template_path, encoding="utf-8") as file:
-            html_content = file.read()
-            return html_content.replace("{{TENANT_ID}}", tenant)
-    except FileNotFoundError as err:
+        template = jinja_env.get_template("dashboard.html")
+        return template.render()
+    except jinja2.TemplateNotFound as err:
         raise HTTPException(
             status_code=404,
             detail="Dashboard template file not found.",
