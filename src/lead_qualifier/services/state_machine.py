@@ -9,6 +9,7 @@ from lead_qualifier.core.masking import mask_phone_number
 from lead_qualifier.core.messages import (
     ASK_REVENUE_REPLY,
     ASK_ROLE_REPLY,
+    CONVERSATION_FINISHED_REPLY,
     DISQUALIFIED_REPLY,
     NOT_QUALIFIED_REPLY,
     QUALIFIED_REPLY,
@@ -107,14 +108,53 @@ class StateMachineService:
             )
 
         try:
-            # Step 2: Extract semantic slots outside any active transaction or row lock
+            # Step 2: Check if lead conversation is already in a terminal state (QUALIFIED, NOT_QUALIFIED, DISQUALIFIED)
+            prev_state, _ = await self.repo.get_conversation_state_read_only(request.phone_number)
+            if prev_state in (
+                ConversationState.QUALIFIED,
+                ConversationState.NOT_QUALIFIED,
+                ConversationState.DISQUALIFIED,
+            ):
+                logger.info(
+                    "Lead %s is in terminal state %s; skipping LLM extraction and scoring.",
+                    mask_phone_number(request.phone_number),
+                    prev_state,
+                )
+                await self.repo.mark_message_done(request.message_id)
+                await self.repo.conn.commit()
+                return TurnResponse(
+                    reply_message=CONVERSATION_FINISHED_REPLY,
+                    current_state=ConversationState(prev_state),
+                    is_finished=True,
+                )
+
+            # Step 3: Extract semantic slots outside any active transaction or row lock
             slots = await self.llm_adapter.extract_slots(request.user_message)
             new_slots = slots.model_dump(exclude_none=True)
 
-            # Step 3: Second short transaction - lock conversation state, merge slots, score, persist
-            _prev_state, accumulated_slots = await self.repo.get_or_create_conversation_state(
+            # Step 4: Second short transaction - lock conversation state, merge slots, score, persist
+            locked_state, accumulated_slots = await self.repo.get_or_create_conversation_state(
                 request.phone_number
             )
+
+            # Re-verify terminal state under lock in case another turn finished concurrently
+            if locked_state in (
+                ConversationState.QUALIFIED,
+                ConversationState.NOT_QUALIFIED,
+                ConversationState.DISQUALIFIED,
+            ):
+                logger.info(
+                    "Lead %s reached terminal state %s concurrently; skipping re-evaluation.",
+                    mask_phone_number(request.phone_number),
+                    locked_state,
+                )
+                await self.repo.mark_message_done(request.message_id)
+                await self.repo.conn.commit()
+                return TurnResponse(
+                    reply_message=CONVERSATION_FINISHED_REPLY,
+                    current_state=ConversationState(locked_state),
+                    is_finished=True,
+                )
 
             # Accumulate and merge newly extracted slots over previous turn history
             lead_data: dict[str, Any] = {**accumulated_slots, **new_slots}

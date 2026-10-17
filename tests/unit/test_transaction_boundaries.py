@@ -41,6 +41,7 @@ async def test_slow_llm_does_not_hold_conversation_state_lock() -> None:
         return "INITIAL", {}
 
     mock_repo.get_or_create_conversation_state = AsyncMock(side_effect=mock_get_or_create_state)
+    mock_repo.get_conversation_state_read_only = AsyncMock(return_value=("INITIAL", {}))
     mock_repo.save_conversation_state = AsyncMock()
     mock_repo.save_scoring_result = AsyncMock()
     mock_repo.mark_message_done = AsyncMock()
@@ -92,6 +93,7 @@ async def test_failed_message_marks_status_failed_for_retry() -> None:
     mock_repo = MagicMock()
     mock_repo.conn = mock_conn
     mock_repo.acquire_message_lock = AsyncMock(return_value=True)
+    mock_repo.get_conversation_state_read_only = AsyncMock(return_value=("INITIAL", {}))
     mock_repo.mark_message_failed = AsyncMock()
 
     mock_llm = MagicMock()
