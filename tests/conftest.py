@@ -106,6 +106,14 @@ async def setup_test_tenants(db_admin: AsyncConnection) -> None:
             """,
             (TENANT_INVASOR, hash_api_key(API_KEY_INVASOR), "Attacker Tenant Test Key"),
         )
+        # Enforce least privilege permissions on core.api_keys
+        await cur.execute("REVOKE SELECT ON core.api_keys FROM app_user")
+        await cur.execute(
+            "REVOKE EXECUTE ON FUNCTION core.resolve_tenant_by_api_key(varchar(64)) FROM PUBLIC"
+        )
+        await cur.execute(
+            "GRANT EXECUTE ON FUNCTION core.resolve_tenant_by_api_key(varchar(64)) TO app_user"
+        )
         await db_admin.commit()
 
 
