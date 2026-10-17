@@ -3,6 +3,7 @@
 from typing import Any
 
 from lead_qualifier.core.enums import ConversationState
+from lead_qualifier.core.exceptions import ActiveRuleSetNotFoundError
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.masking import mask_phone_number
 from lead_qualifier.core.messages import (
@@ -13,11 +14,7 @@ from lead_qualifier.core.messages import (
     QUALIFIED_REPLY,
 )
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-from lead_qualifier.core.scoring.strategy import (
-    ExactMatchStrategy,
-    KnockoutStrategy,
-    build_strategies_from_rules,
-)
+from lead_qualifier.core.scoring.strategy import build_strategies_from_rules
 from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from lead_qualifier.services.scoring_service import ScoringService
@@ -43,16 +40,19 @@ class StateMachineService:
         self.llm_adapter = llm_adapter or OpenAIAdapter()
         self.scoring_service = scoring_service
 
-    async def _resolve_scoring_engine(self) -> tuple[ScoringService, str | None]:
-        """Resolve the scoring engine and active rule set identifier.
+    async def _resolve_scoring_engine(self) -> tuple[ScoringService, str]:
+        """Resolve the scoring engine and active rule set identifier strictly from database.
+
+        Raises:
+            ActiveRuleSetNotFoundError: If no active rule set is configured for the tenant.
 
         Returns:
-            tuple[ScoringService, str | None]: Initialized engine and database rule set ID.
+            tuple[ScoringService, str]: Initialized engine and database rule set ID.
         """
         rule_set = await self.repo.get_active_scoring_rule_set()
 
         if self.scoring_service is not None:
-            rule_set_id = str(rule_set["id"]) if rule_set else None
+            rule_set_id = str(rule_set["id"]) if rule_set else "injected"
             return self.scoring_service, rule_set_id
 
         if rule_set is not None:
@@ -62,15 +62,8 @@ class StateMachineService:
                 rule_set["id"]
             )
 
-        logger.warning(
-            "No active scoring_rule_set found for tenant; falling back to in-memory defaults."
-        )
-        default_strategies = [
-            KnockoutStrategy(field="role", knockout_value="estudante"),
-            ExactMatchStrategy(field="revenue", target_value="5 milhoes ao ano", points=50),
-            ExactMatchStrategy(field="role", target_value="CEO", points=50),
-        ]
-        return ScoringService(default_strategies, qualification_threshold=50), None
+        logger.error("No active scoring_rule_set configured for tenant in database.")
+        raise ActiveRuleSetNotFoundError("No active scoring rule set found for tenant.")
 
     async def process_turn(self, request: TurnRequest) -> TurnResponse:
         """Process an inbound conversation turn and determine the appropriate response and next state.
@@ -115,12 +108,18 @@ class StateMachineService:
         scoring_engine, rule_set_id = await self._resolve_scoring_engine()
         score_result = scoring_engine.calculate_score(lead_data)
 
-        final_score = score_result["final_score"]
-        is_qualified = score_result["is_qualified"]
-        reasons = score_result["reasons"]
+        final_score = score_result.final_score
+        is_qualified = score_result.is_qualified
+        is_knocked_out = score_result.is_knocked_out
+        reasons = score_result.reasons
+
+        has_role = lead_data.get("role") is not None
+        has_revenue = (
+            lead_data.get("revenue_tier") is not None or lead_data.get("revenue") is not None
+        )
 
         # Branch 1: Immediate disqualification (knockout rule triggered)
-        if final_score < -9000:
+        if is_knocked_out:
             logger.warning(
                 f"Lead {mask_phone_number(request.phone_number)} disqualified immediately."
             )
@@ -128,19 +127,16 @@ class StateMachineService:
             reply = DISQUALIFIED_REPLY
             is_finished = True
 
-            if rule_set_id:
-                await self.repo.save_scoring_result(
-                    phone_number=request.phone_number,
-                    rule_set_id=rule_set_id,
-                    final_score=final_score,
-                    is_qualified=False,
-                    audit_trail=reasons,
-                )
+            await self.repo.save_scoring_result(
+                phone_number=request.phone_number,
+                rule_set_id=rule_set_id,
+                final_score=final_score,
+                is_qualified=False,
+                audit_trail=reasons,
+            )
 
         # Branch 2: Lead qualified or all required slots collected
-        elif is_qualified or (
-            lead_data.get("role") is not None and lead_data.get("revenue") is not None
-        ):
+        elif is_qualified or (has_role and has_revenue):
             logger.info(
                 f"Lead {mask_phone_number(request.phone_number)} completed qualification with score {final_score}."
             )
@@ -152,17 +148,16 @@ class StateMachineService:
                 reply = NOT_QUALIFIED_REPLY
             is_finished = True
 
-            if rule_set_id:
-                await self.repo.save_scoring_result(
-                    phone_number=request.phone_number,
-                    rule_set_id=rule_set_id,
-                    final_score=final_score,
-                    is_qualified=is_qualified,
-                    audit_trail=reasons,
-                )
+            await self.repo.save_scoring_result(
+                phone_number=request.phone_number,
+                rule_set_id=rule_set_id,
+                final_score=final_score,
+                is_qualified=is_qualified,
+                audit_trail=reasons,
+            )
 
         # Branch 3: Slot filling - role missing
-        elif lead_data.get("role") is None:
+        elif not has_role:
             new_state = ConversationState.AWAITING_ROLE
             reply = ASK_ROLE_REPLY
             is_finished = False

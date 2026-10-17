@@ -43,18 +43,18 @@ async def run_evaluation() -> None:
         lead_data = slots.model_dump(exclude_none=True)
 
         result = scoring_service.calculate_score(lead_data)
-        matched = result["is_qualified"] == expected_qualification
+        matched = result.is_qualified == expected_qualification
 
         if matched:
             correct_predictions += 1
             print(
-                f"[OK] Prediction matched! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})"
+                f"[OK] Prediction matched! (Expected: {expected_qualification}, Predicted: {result.is_qualified})"
             )
         else:
             print(
-                f"[FAIL] Prediction mismatch! (Expected: {expected_qualification}, Predicted: {result['is_qualified']})"
+                f"[FAIL] Prediction mismatch! (Expected: {expected_qualification}, Predicted: {result.is_qualified})"
             )
-            print(f"Machine reasons: {result['reasons']}")
+            print(f"Machine reasons: {result.reasons}")
             print(f"Extracted slots: {lead_data}")
 
     accuracy = (correct_predictions / total_cases) * 100
