@@ -64,6 +64,7 @@ async def test_slow_llm_does_not_hold_conversation_state_lock() -> None:
         repo=mock_repo,
         llm_adapter=mock_llm,
         scoring_service=scoring,
+        required_slots=["role"],
     )
 
     request = TurnRequest(

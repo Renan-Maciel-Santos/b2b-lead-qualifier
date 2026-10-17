@@ -23,14 +23,11 @@ We establish a strict dual-principle evaluation model: **knockouts fail early; q
    - While required slots remain missing, the state machine asks for the next missing slot in the configured sequence.
 
 3. **Data-Driven Slot Dependencies**:
-   Mandatory slots are declared in the active rule set JSONB (`scoring_rule_sets.rules`), for example:
-   ```json
-   {
-     "required_slots": ["role", "revenue_tier"],
-     "rules": [...]
-   }
-   ```
-   For backward compatibility with legacy rule sets lacking an explicit `required_slots` key, the mandatory slots are automatically derived from the unique fields referenced across the rule specifications in their order of declaration.
+   Mandatory slots are modeled in their own dedicated PostgreSQL column `scoring_rule_sets.required_slots text[] NOT NULL CHECK (cardinality(required_slots) > 0)` alongside the rule specifications in `scoring_rule_sets.rules JSONB NOT NULL CHECK (jsonb_typeof(rules) = 'array')`:
+   - Enforces relational array integrity at the database layer (non-null, non-empty array).
+   - In Python, the repository retrieves both columns and constructs `RuleSetConfigModel` where Pydantic strictly validates: non-empty list, absence of duplicate entries, and existence of every field in `LeadSlots`.
+   - If missing or invalid, rule set loading fails fast with an explicit validation error.
+   - The dialogue question sequence strictly adheres to the declaration order in `required_slots`.
 
 4. **Deferred Scoring Persistence**:
    Scoring outcomes are only written to the `scoring_results` audit table once a terminal state (`QUALIFIED`, `NOT_QUALIFIED`, `DISQUALIFIED`) is reached. Incomplete, in-flight turns do not pollute audit tables or analytics dashboards.

@@ -4,7 +4,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
+
+from lead_qualifier.core.schemas.slots import LeadSlots
 
 
 @dataclass(frozen=True)
@@ -110,65 +112,71 @@ RuleConfig = Annotated[KnockoutRuleModel | ExactMatchRuleModel, Field(discrimina
 
 
 class RuleSetConfigModel(BaseModel):
-    """Configuration model for scoring rule sets, supporting optional required_slots."""
+    """Configuration model for scoring rule sets with mandatory required_slots."""
 
     rules: list[RuleConfig]
-    required_slots: list[str] = Field(default_factory=list)
+    required_slots: list[str]
+
+    # Valida que required_slots seja nao-vazia, sem duplicatas e com campos validos em LeadSlots
+    @field_validator("required_slots")
+    @classmethod
+    def validate_required_slots(cls, v: list[str]) -> list[str]:
+        """Validate non-empty list, absence of duplicates, and field existence in LeadSlots."""
+        if not v:
+            raise ValueError("required_slots must be a non-empty list.")
+        if len(v) != len(set(v)):
+            raise ValueError("required_slots must not contain duplicate fields.")
+        valid_fields = set(LeadSlots.model_fields.keys())
+        for slot in v:
+            if slot not in valid_fields:
+                raise ValueError(
+                    f"Slot '{slot}' is not a valid field in LeadSlots. Valid fields: {sorted(valid_fields)}"
+                )
+        return v
 
 
 def parse_rule_set_config(
     raw_config: list[dict[str, Any]] | dict[str, Any],
+    required_slots: list[str] | None = None,
 ) -> tuple[list[ScoringStrategy], list[str]]:
-    """Parse, validate, and extract scoring strategies and required slot dependencies.
-
-    Supports both:
-    1. Structured dicts: {"rules": [...], "required_slots": ["role", "revenue"]}
-    2. Legacy lists: [{"type": "knockout", ...}, ...] (required_slots is derived from rule fields)
-
-    If required_slots is not explicitly provided, it is automatically derived from the unique
-    fields referenced across the rules in their order of appearance.
+    """Parse, validate, and extract scoring strategies and mandatory required slots.
 
     Args:
-        raw_config: JSONB payload from scoring_rule_sets.rules.
+        raw_config: Dict with 'rules' and 'required_slots', or list of rules.
+        required_slots: Optional list of mandatory slots if not present in raw_config.
 
     Returns:
         tuple[list[ScoringStrategy], list[str]]: Validated strategies and ordered required slots.
 
     Raises:
-        pydantic.ValidationError: If rule definitions are malformed.
+        pydantic.ValidationError: If rule definitions or required_slots are malformed or missing.
     """
     if isinstance(raw_config, dict):
         raw_rules = raw_config.get("rules", [])
-        explicit_required_slots = raw_config.get("required_slots")
+        raw_required_slots = (
+            required_slots if required_slots is not None else raw_config.get("required_slots")
+        )
     else:
         raw_rules = raw_config
-        explicit_required_slots = None
+        raw_required_slots = required_slots
 
     normalized_rules: list[dict[str, Any]] = []
-    for raw in raw_rules:
-        entry = dict(raw)
-        # Check explicit key presence to prevent false-negative bugs when value is falsy (0, False, "")
-        if "value" not in entry:
-            if "knockout_value" in entry:
-                entry["value"] = entry["knockout_value"]
-            elif "target_value" in entry:
-                entry["value"] = entry["target_value"]
-        normalized_rules.append(entry)
+    if isinstance(raw_rules, list):
+        for raw in raw_rules:
+            if isinstance(raw, dict):
+                entry = dict(raw)
+                # Check explicit key presence to prevent false-negative bugs when value is falsy (0, False, "")
+                if "value" not in entry:
+                    if "knockout_value" in entry:
+                        entry["value"] = entry["knockout_value"]
+                    elif "target_value" in entry:
+                        entry["value"] = entry["target_value"]
+                normalized_rules.append(entry)
 
-    # Derive required slots from rule fields if not explicitly configured
-    if explicit_required_slots:
-        required_slots = list(explicit_required_slots)
-    else:
-        derived: list[str] = []
-        for r in normalized_rules:
-            field_name = r.get("field")
-            if field_name and field_name not in derived:
-                derived.append(str(field_name))
-        required_slots = derived
-
+    # Validates rules and strictly mandatory required_slots
     validated = RuleSetConfigModel(
         rules=normalized_rules,  # type: ignore[arg-type]
-        required_slots=required_slots,
+        required_slots=raw_required_slots,  # type: ignore[arg-type]
     )
 
     strategies: list[ScoringStrategy] = []
@@ -200,5 +208,36 @@ def build_strategies_from_rules(
     Raises:
         pydantic.ValidationError: If any rule specification is malformed or uses an unknown type.
     """
-    strategies, _ = parse_rule_set_config(rules)
+    raw_rules = rules.get("rules", []) if isinstance(rules, dict) else rules
+
+    normalized_rules: list[dict[str, Any]] = []
+    if isinstance(raw_rules, list):
+        for raw in raw_rules:
+            if isinstance(raw, dict):
+                entry = dict(raw)
+                # Check explicit key presence to prevent false-negative bugs when value is falsy (0, False, "")
+                if "value" not in entry:
+                    if "knockout_value" in entry:
+                        entry["value"] = entry["knockout_value"]
+                    elif "target_value" in entry:
+                        entry["value"] = entry["target_value"]
+                normalized_rules.append(entry)
+
+    rule_adapter: TypeAdapter[RuleConfig] = TypeAdapter(RuleConfig)
+    strategies: list[ScoringStrategy] = []
+    for r in normalized_rules:
+        validated_rule = rule_adapter.validate_python(r)
+        if isinstance(validated_rule, KnockoutRuleModel):
+            strategies.append(
+                KnockoutStrategy(field=validated_rule.field, knockout_value=validated_rule.value)
+            )
+        elif isinstance(validated_rule, ExactMatchRuleModel):
+            strategies.append(
+                ExactMatchStrategy(
+                    field=validated_rule.field,
+                    target_value=validated_rule.value,
+                    points=validated_rule.points,
+                )
+            )
+
     return strategies
