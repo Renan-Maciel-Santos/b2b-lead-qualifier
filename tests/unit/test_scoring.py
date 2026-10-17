@@ -13,6 +13,7 @@ from lead_qualifier.core.scoring.strategy import (
     KnockoutStrategy,
     StrategyResult,
     build_strategies_from_rules,
+    parse_rule_set_config,
 )
 from lead_qualifier.services.scoring_service import ScoringResult, ScoringService
 from lead_qualifier.services.state_machine import StateMachineService
@@ -223,3 +224,26 @@ async def test_state_machine_raises_when_no_active_rule_set() -> None:
 
     with pytest.raises(ActiveRuleSetNotFoundError):
         await service.process_turn(request)
+
+
+def test_rule_set_derives_required_slots_when_omitted() -> None:
+    """Verify that rule set without explicit required_slots derives dependencies from rule fields."""
+    rules: list[dict[str, Any]] = [
+        {"type": "knockout", "field": "role", "value": "estagiario"},
+        {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+        {"type": "exact_match", "field": "revenue", "value": "5 milhoes", "points": 50},
+    ]
+    # 1. From list payload without required_slots key
+    strategies, derived_slots = parse_rule_set_config(rules)
+    assert len(strategies) == 3
+    assert derived_slots == ["role", "revenue"]
+
+    # 2. From dict payload without required_slots key
+    _, dict_derived_slots = parse_rule_set_config({"rules": rules})
+    assert dict_derived_slots == ["role", "revenue"]
+
+    # 3. Explicit required_slots in dict payload takes precedence
+    _, explicit_slots = parse_rule_set_config(
+        {"rules": rules, "required_slots": ["role", "company_size", "revenue"]}
+    )
+    assert explicit_slots == ["role", "company_size", "revenue"]
