@@ -59,7 +59,7 @@ async def db_admin() -> AsyncIterator[AsyncConnection]:
 
 
 @pytest_asyncio.fixture
-async def setup_test_tenants(db_admin: AsyncConnection) -> None:
+async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
     """Ensure test tenants, baseline rule sets, and test API keys are provisioned before each integration test."""
     async with db_admin.cursor() as cur:
         await cur.execute(
