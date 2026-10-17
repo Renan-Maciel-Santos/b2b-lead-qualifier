@@ -26,8 +26,8 @@ class WebhookController:
     async def handle_turn(self, request: TurnRequest) -> TurnResponse:
         """Handle a single conversational turn from the messaging transport.
 
-        Commits the transaction upon successful processing so state and idempotency
-        are committed atomically.
+        Delegates execution to StateMachineService, which manages short, dedicated
+        transaction boundaries around idempotency registration and state updates.
 
         Args:
             request: Inbound turn payload containing message ID and user text.
@@ -35,7 +35,4 @@ class WebhookController:
         Returns:
             TurnResponse: System response and next state for the caller.
         """
-        response = await self.service.process_turn(request)
-        # Commit at the controller boundary to ensure that any failure in the service aborts the transaction
-        await self.repo.conn.commit()
-        return response
+        return await self.service.process_turn(request)

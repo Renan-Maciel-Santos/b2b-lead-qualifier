@@ -19,30 +19,102 @@ class ConversationRepository:
         """
         self.conn = conn
 
-    async def acquire_message_lock(self, message_id: str) -> bool:
-        """Atomically register a message ID using INSERT ON CONFLICT DO NOTHING RETURNING.
+    async def acquire_message_lock(self, message_id: str, timeout_seconds: int = 60) -> bool:
+        """Atomically register a message ID or reclaim a timed-out/failed message.
 
-        Guarantees race-free idempotency: returns True if this worker won the lock and
-        should process the turn, or False if the message was already recorded.
+        Guarantees race-free idempotency across workers:
+        - Inserts the message with status 'processing'.
+        - If a conflict occurs on (tenant_id, message_id), reclaims the message only if:
+          1. status is 'failed', OR
+          2. status is 'processing' and updated_at is older than timeout_seconds.
+        - Commits immediately in its own transaction so no database lock is held open.
 
         Args:
             message_id: Inbound message identifier from transport.
+            timeout_seconds: Timeout window after which an unfinished 'processing' message is reclaimed.
 
         Returns:
-            bool: True if message was newly inserted; False if already processed.
+            bool: True if this worker won the lock and should process the turn; False otherwise.
         """
         async with self.conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 """
-                INSERT INTO processed_messages (message_id)
-                VALUES (%s)
-                ON CONFLICT (tenant_id, message_id) DO NOTHING
+                INSERT INTO processed_messages (message_id, status, created_at, updated_at)
+                VALUES (%s, 'processing', now(), now())
+                ON CONFLICT (tenant_id, message_id) DO UPDATE
+                SET status = 'processing',
+                    updated_at = now()
+                WHERE (processed_messages.status = 'failed')
+                   OR (processed_messages.status = 'processing'
+                       AND processed_messages.updated_at < now() - (%s || ' seconds')::interval)
                 RETURNING message_id
+                """,
+                (message_id, timeout_seconds),
+            )
+            row = await cur.fetchone()
+        await self.conn.commit()
+        return row is not None
+
+    async def mark_message_done(self, message_id: str) -> None:
+        """Mark a processed message as successfully completed.
+
+        Args:
+            message_id: Message identifier to mark as done.
+        """
+        async with self.conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE processed_messages
+                SET status = 'done', updated_at = now()
+                WHERE message_id = %s
                 """,
                 (message_id,),
             )
+
+    async def mark_message_failed(self, message_id: str) -> None:
+        """Mark a message as failed and commit immediately so it can be retried.
+
+        Args:
+            message_id: Message identifier to mark as failed.
+        """
+        async with self.conn.cursor() as cur:
+            await cur.execute(
+                """
+                UPDATE processed_messages
+                SET status = 'failed', updated_at = now()
+                WHERE message_id = %s
+                """,
+                (message_id,),
+            )
+        await self.conn.commit()
+
+    async def get_conversation_state_read_only(
+        self,
+        phone_number: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """Retrieve conversation state and accumulated slots without acquiring a row lock.
+
+        Allows inspecting state before invoking external services like the LLM.
+
+        Args:
+            phone_number: Evaluated lead phone number in E.164 format.
+
+        Returns:
+            tuple[str, dict[str, Any]]: Current state string and accumulated slots dictionary.
+        """
+        async with self.conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT current_state, accumulated_slots
+                FROM conversation_states
+                WHERE phone_number = %s
+                """,
+                (phone_number,),
+            )
             row = await cur.fetchone()
-            return row is not None
+            if not row:
+                return "INITIAL", {}
+            return str(row["current_state"]), dict(row["accumulated_slots"] or {})
 
     async def get_or_create_conversation_state(
         self,
