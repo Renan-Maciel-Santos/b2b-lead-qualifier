@@ -9,7 +9,7 @@ SELECT core.provision_tenant(
 );
 
 -- Active scoring rules for demo tenant
-INSERT INTO tenant_demo.scoring_rule_sets (tenant_id, version, rules, qualification_threshold, is_active)
+INSERT INTO tenant_demo.scoring_rule_sets (tenant_id, version, rules, required_slots, qualification_threshold, is_active)
 VALUES (
     '11111111-1111-1111-1111-111111111111',
     1,
@@ -24,10 +24,15 @@ VALUES (
         {"type": "exact_match", "field": "revenue", "value": "10 milhoes ao ano", "points": 50},
         {"type": "exact_match", "field": "company_size", "value": "mais de 100", "points": 30}
     ]'::jsonb,
+    ARRAY['role', 'revenue']::text[],
     50,
     true
 )
-ON CONFLICT (tenant_id, version) DO NOTHING;
+ON CONFLICT (tenant_id, version) DO UPDATE SET
+    rules = EXCLUDED.rules,
+    required_slots = EXCLUDED.required_slots,
+    qualification_threshold = EXCLUDED.qualification_threshold,
+    is_active = EXCLUDED.is_active;
 
 -- Demo API key (raw: b2b_live_demo_acme_111111111111111111111111)
 INSERT INTO core.api_keys (tenant_id, key_hash, name)
