@@ -206,6 +206,7 @@ async def test_state_machine_raises_when_no_active_rule_set() -> None:
     """Verify that StateMachineService raises ActiveRuleSetNotFoundError when DB has no active rules."""
     mock_repo = AsyncMock()
     mock_repo.acquire_message_lock.return_value = True
+    mock_repo.get_conversation_state_read_only.return_value = ("INITIAL", {})
     mock_repo.get_or_create_conversation_state.return_value = ("INITIAL", {})
     mock_repo.get_active_scoring_rule_set.return_value = None
 

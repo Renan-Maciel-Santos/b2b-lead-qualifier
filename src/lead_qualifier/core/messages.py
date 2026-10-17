@@ -17,3 +17,9 @@ ASK_ROLE_REPLY = "Ola! Para direcionarmos a melhor solucao da plataforma, qual o
 ASK_REVENUE_REPLY = (
     "Entendido! E qual a media de faturamento anual ou mensal da sua empresa atualmente?"
 )
+
+CONVERSATION_FINISHED_REPLY = (
+    "Seu atendimento já foi finalizado anteriormente por nossa equipe. "
+    "Caso precise de novas informações ou deseje reiniciar o contato, "
+    "por favor utilize nossos canais oficiais de suporte."
+)
