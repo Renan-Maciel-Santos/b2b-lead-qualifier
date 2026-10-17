@@ -109,29 +109,43 @@ class ExactMatchRuleModel(BaseModel):
 RuleConfig = Annotated[KnockoutRuleModel | ExactMatchRuleModel, Field(discriminator="type")]
 
 
-class RuleListValidator(BaseModel):
-    """Validator ensuring every rule conforms to supported discriminated schemas."""
+class RuleSetConfigModel(BaseModel):
+    """Configuration model for scoring rule sets, supporting optional required_slots."""
 
     rules: list[RuleConfig]
+    required_slots: list[str] = Field(default_factory=list)
 
 
-def build_strategies_from_rules(rules: list[dict[str, Any]]) -> list[ScoringStrategy]:
-    """Dynamically instantiate and strictly validate scoring strategies from JSON specifications.
+def parse_rule_set_config(
+    raw_config: list[dict[str, Any]] | dict[str, Any],
+) -> tuple[list[ScoringStrategy], list[str]]:
+    """Parse, validate, and extract scoring strategies and required slot dependencies.
 
-    Uses Pydantic discriminated union validation to reject unknown rule types or invalid payloads.
-    Fixes falsy value bugs by checking explicit key presence rather than boolean truthiness.
+    Supports both:
+    1. Structured dicts: {"rules": [...], "required_slots": ["role", "revenue"]}
+    2. Legacy lists: [{"type": "knockout", ...}, ...] (required_slots is derived from rule fields)
+
+    If required_slots is not explicitly provided, it is automatically derived from the unique
+    fields referenced across the rules in their order of appearance.
 
     Args:
-        rules: List of rule definitions loaded from the database JSONB column.
+        raw_config: JSONB payload from scoring_rule_sets.rules.
 
     Returns:
-        list[ScoringStrategy]: Instantiated rule evaluators.
+        tuple[list[ScoringStrategy], list[str]]: Validated strategies and ordered required slots.
 
     Raises:
-        pydantic.ValidationError: If any rule specification is malformed or uses an unknown type.
+        pydantic.ValidationError: If rule definitions are malformed.
     """
+    if isinstance(raw_config, dict):
+        raw_rules = raw_config.get("rules", [])
+        explicit_required_slots = raw_config.get("required_slots")
+    else:
+        raw_rules = raw_config
+        explicit_required_slots = None
+
     normalized_rules: list[dict[str, Any]] = []
-    for raw in rules:
+    for raw in raw_rules:
         entry = dict(raw)
         # Check explicit key presence to prevent false-negative bugs when value is falsy (0, False, "")
         if "value" not in entry:
@@ -141,7 +155,21 @@ def build_strategies_from_rules(rules: list[dict[str, Any]]) -> list[ScoringStra
                 entry["value"] = entry["target_value"]
         normalized_rules.append(entry)
 
-    validated = RuleListValidator(rules=normalized_rules)  # type: ignore[arg-type]
+    # Derive required slots from rule fields if not explicitly configured
+    if explicit_required_slots:
+        required_slots = list(explicit_required_slots)
+    else:
+        derived: list[str] = []
+        for r in normalized_rules:
+            field_name = r.get("field")
+            if field_name and field_name not in derived:
+                derived.append(str(field_name))
+        required_slots = derived
+
+    validated = RuleSetConfigModel(
+        rules=normalized_rules,  # type: ignore[arg-type]
+        required_slots=required_slots,
+    )
 
     strategies: list[ScoringStrategy] = []
     for rule in validated.rules:
@@ -152,4 +180,25 @@ def build_strategies_from_rules(rules: list[dict[str, Any]]) -> list[ScoringStra
                 ExactMatchStrategy(field=rule.field, target_value=rule.value, points=rule.points)
             )
 
+    return strategies, validated.required_slots
+
+
+def build_strategies_from_rules(
+    rules: list[dict[str, Any]] | dict[str, Any],
+) -> list[ScoringStrategy]:
+    """Dynamically instantiate and strictly validate scoring strategies from JSON specifications.
+
+    Uses Pydantic discriminated union validation to reject unknown rule types or invalid payloads.
+    Fixes falsy value bugs by checking explicit key presence rather than boolean truthiness.
+
+    Args:
+        rules: List or dict of rule definitions loaded from the database JSONB column.
+
+    Returns:
+        list[ScoringStrategy]: Instantiated rule evaluators.
+
+    Raises:
+        pydantic.ValidationError: If any rule specification is malformed or uses an unknown type.
+    """
+    strategies, _ = parse_rule_set_config(rules)
     return strategies
