@@ -173,6 +173,8 @@ docker compose --profile tools run --rm dbmate up
 docker exec -i b2b_db psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
 ```
 
+> **Note**: Database migrations were consolidated into a single baseline migration (`20261017000000_baseline.sql`) prior to the first public release, providing a clean schema definition without transitional migration artifacts.
+
 ### 4. Generate a Tenant API Key
 Use the administrative CLI to provision a secure API key for the demo tenant:
 ```bash
