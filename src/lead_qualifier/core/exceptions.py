@@ -6,6 +6,10 @@ from fastapi.responses import JSONResponse
 from lead_qualifier.core.logger import logger
 
 
+class ActiveRuleSetNotFoundError(Exception):
+    """Raised when no active scoring rule set is configured for the tenant."""
+
+
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle uncaught exceptions across all application routes.
 
