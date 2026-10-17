@@ -91,3 +91,39 @@ async def test_repository_save_scoring_result(db_app: AsyncConnection) -> None:
         assert row[2] == score
         assert row[3] is True
         assert len(row[4]) == 2
+
+
+async def test_stuck_message_reprocessing_after_timeout(
+    db_app: AsyncConnection,
+) -> None:
+    """Verify that stuck processing messages can be reprocessed after timeout, active processing is blocked, and failed messages can be retried."""
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    repo = ConversationRepository(db_app)
+    msg_id = f"msg_timeout_{uuid.uuid4()}"
+
+    # 1. Message in processing within the timeout window remains blocked (DUPLICATE_IGNORED)
+    assert await repo.acquire_message_lock(msg_id, timeout_seconds=10) is True
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    assert await repo.acquire_message_lock(msg_id, timeout_seconds=10) is False
+
+    # 2. Stuck message with updated_at older than timeout can be reprocessed
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    async with db_app.cursor() as cur:
+        await cur.execute(
+            """
+            UPDATE processed_messages
+            SET updated_at = now() - interval '30 seconds'
+            WHERE message_id = %s
+            """,
+            (msg_id,),
+        )
+    await db_app.commit()
+
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    assert await repo.acquire_message_lock(msg_id, timeout_seconds=10) is True
+
+    # 3. Message in failed status can also be reprocessed immediately
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    await repo.mark_message_failed(msg_id)
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    assert await repo.acquire_message_lock(msg_id, timeout_seconds=10) is True
