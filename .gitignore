@@ -57,3 +57,6 @@ htmlcov/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+# Agent local status and logs
+docs/STATUS.md
