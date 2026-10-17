@@ -58,9 +58,9 @@ async def db_admin() -> AsyncIterator[AsyncConnection]:
         yield conn
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def setup_test_tenants(db_admin: AsyncConnection) -> None:
-    """Ensure test tenants, baseline rule sets, and test API keys are provisioned before each test."""
+    """Ensure test tenants, baseline rule sets, and test API keys are provisioned before each integration test."""
     async with db_admin.cursor() as cur:
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
@@ -110,7 +110,7 @@ async def setup_test_tenants(db_admin: AsyncConnection) -> None:
 
 
 @pytest_asyncio.fixture
-async def db_app() -> AsyncIterator[AsyncConnection]:
+async def db_app(_setup_test_tenants: None) -> AsyncIterator[AsyncConnection]:
     """Yield an unprivileged application connection without BYPASSRLS."""
     app_user = os.getenv("DB_USER", "app_user")
     app_pwd = os.getenv("DB_PASSWORD", "secret")
@@ -121,7 +121,7 @@ async def db_app() -> AsyncIterator[AsyncConnection]:
 
 
 @pytest_asyncio.fixture
-async def api_client() -> AsyncIterator[AsyncClient]:
+async def api_client(_setup_test_tenants: None) -> AsyncIterator[AsyncClient]:
     """Yield an async HTTP test client with application lifespan active."""
     transport = ASGITransport(app=app)
     async with (
