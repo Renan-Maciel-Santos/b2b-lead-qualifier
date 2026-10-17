@@ -289,3 +289,68 @@ async def test_connection_returned_to_pool_during_llm_call(
         assert response is not None
     finally:
         await pool_single.close()
+
+
+async def test_ceo_knockout_on_revenue_disqualifies_immediately(
+    db_pool: AsyncConnectionPool,
+) -> None:
+    """Prove that knockout on revenue is evaluated even when role alone awards high score (e.g. CEO).
+
+    Turn 1: Lead provides role="CEO" (50 pts, but revenue is still required).
+    State must transition to AWAITING_REVENUE, not QUALIFIED.
+    Turn 2: Lead provides revenue="abaixo de 50 mil" (knockout condition).
+    State must immediately transition to DISQUALIFIED, terminating dialogue.
+    """
+    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    mock_adapter = OpenAIAdapter(api_key="mock_key")
+    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+
+    # Turn 1: Lead is CEO -> requires revenue before qualification decision
+    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="CEO"))  # type: ignore[method-assign]
+    turn1_response = await service.process_turn(
+        TurnRequest(
+            message_id=f"msg_ko_turn1_{uuid.uuid4()}",
+            phone_number=phone,
+            user_message="Ola, sou o CEO.",
+        )
+    )
+    assert turn1_response.current_state == ConversationState.AWAITING_REVENUE
+    assert turn1_response.is_finished is False
+
+    # Turn 2: Lead provides disqualified revenue -> knockout triggered immediately
+    mock_adapter.extract_slots = AsyncMock(  # type: ignore[method-assign]
+        return_value=LeadSlots(revenue="abaixo de 50 mil")
+    )
+    turn2_response = await service.process_turn(
+        TurnRequest(
+            message_id=f"msg_ko_turn2_{uuid.uuid4()}",
+            phone_number=phone,
+            user_message="Faturamos abaixo de 50 mil reais.",
+        )
+    )
+    assert turn2_response.current_state == ConversationState.DISQUALIFIED
+    assert turn2_response.is_finished is True
+
+
+async def test_first_turn_knockout_terminates_immediately(
+    db_pool: AsyncConnectionPool,
+) -> None:
+    """Verify that a knockout triggered on the first turn terminates immediately without asking further slots."""
+    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    mock_adapter = OpenAIAdapter(api_key="mock_key")
+    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="estagiario"))  # type: ignore[method-assign]
+    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+
+    response = await service.process_turn(
+        TurnRequest(
+            message_id=f"msg_first_ko_{uuid.uuid4()}",
+            phone_number=phone,
+            user_message="Sou estagiario na empresa.",
+        )
+    )
+    assert response.current_state == ConversationState.DISQUALIFIED
+    assert response.is_finished is True
