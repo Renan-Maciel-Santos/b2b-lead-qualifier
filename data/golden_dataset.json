@@ -1,0 +1,84 @@
+[
+  {
+    "id": "case_001",
+    "description": "Decision maker CEO with high annual revenue",
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": "Olá, sou o Carlos, CEO da NovaTech. Faturamos cerca de 5 milhoes ao ano e temos interesse em automatizar nossa qualificação."
+      }
+    ],
+    "expected_slots": {
+      "name": "Carlos",
+      "role": "CEO",
+      "revenue": "5 milhoes ao ano"
+    },
+    "expected_qualified": true
+  },
+  {
+    "id": "case_002",
+    "description": "Student inquiring about academic project (Knockout rule)",
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": "Boa tarde, sou estudante de computação na USP e estou fazendo um trabalho de TCC sobre chatbots."
+      }
+    ],
+    "expected_slots": {
+      "role": "estudante"
+    },
+    "expected_qualified": false
+  },
+  {
+    "id": "case_003",
+    "description": "Manager with unverified revenue below qualification threshold",
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": "Oi, sou a Mariana, gerente de marketing em uma agência com 5 funcionários."
+      }
+    ],
+    "expected_slots": {
+      "name": "Mariana",
+      "role": "gerente de marketing"
+    },
+    "expected_qualified": false
+  },
+  {
+    "id": "case_004",
+    "description": "Multi-turn conversation providing slots incrementally",
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": "Olá, gostaria de conhecer a plataforma."
+      },
+      {
+        "role": "assistant",
+        "content": "Qual é o seu cargo atual?"
+      },
+      {
+        "role": "user",
+        "content": "Sou CEO da Beta Soluções e faturamos 5 milhoes ao ano."
+      }
+    ],
+    "expected_slots": {
+      "role": "CEO",
+      "revenue": "5 milhoes ao ano"
+    },
+    "expected_qualified": true
+  },
+  {
+    "id": "case_005",
+    "description": "Consultant inquiring with no explicit revenue or high-tier role",
+    "conversation_history": [
+      {
+        "role": "user",
+        "content": "Sou consultor autônomo e quero saber quanto custa."
+      }
+    ],
+    "expected_slots": {
+      "role": "consultor autônomo"
+    },
+    "expected_qualified": false
+  }
+]
