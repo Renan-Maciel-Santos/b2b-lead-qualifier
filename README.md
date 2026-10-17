@@ -1,121 +1,133 @@
-# b2b-lead-qualifier
+# B2B Lead Qualifier
 
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.143+-009688)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-336791)](https://github.com/pgvector/pgvector)
-[![Docker](https://img.shields.io/badge/Docker-Multi--stage%2072MB-2496ED)](https://www.docker.com/)
+[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> **Production-grade conversational lead qualification platform for Enterprise B2B SaaS.**  
-> Built with strict multi-tenancy on **PostgreSQL 17 + pgvector**, deterministic **Strategy-pattern scoring engine**, and **LLM at the edge** (OpenAI Structured Outputs).
+> Conversational lead qualification service built on FastAPI and PostgreSQL 17. Combines LLM-based slot extraction at the edge with deterministic Strategy-pattern scoring and PostgreSQL Row-Level Security.
 
 ---
 
-## 💡 The Core Architectural Philosophy
+## Architectural Philosophy
 
-Most conversational AI bots fail in production because they rely on generative LLMs to make business decisions. This leads to **hallucinations, non-deterministic scores, compliance violations, and zero auditability**.
+Many conversational AI implementations delegate critical business decisions directly to large language models. This pattern often causes non-deterministic scoring, hallucinations, compliance risks, and an inability to audit why a lead was accepted or rejected.
 
 **B2B Lead Qualifier enforces a strict separation of concerns:**
-1. **Probabilistic Edge (LLM):** The language model *only* listens to WhatsApp chats and extracts structured slots into strongly-typed Pydantic schemas. It never decides points, eligibility, or qualification.
-2. **Deterministic Core (Python + PostgreSQL):** The business rules, state machine transitions, knockout criteria, and cumulative scores run in pure, predictable Python services backed by ACID database transactions.
-3. **Fail-Closed Multi-Tenancy:** Hardened with PostgreSQL 17 Row-Level Security (`FORCE RLS`), composite foreign keys `(tenant_id, id)`, and non-superuser application connections without `BYPASSRLS`.
+
+1. **Probabilistic Edge (LLM as Slot Extractor):** The language model listens to conversational input and extracts structured attributes into strongly-typed Pydantic schemas (`LeadSlots`) using OpenAI Structured Outputs. The LLM never computes scores, determines qualification, or controls state transitions.
+2. **Deterministic Core (Python Services & PostgreSQL):** Business rules, multi-turn state transitions, knockout evaluations, and point scoring run in pure Python services backed by ACID database transactions.
+3. **Database-Enforced Multi-Tenancy:** Isolation is enforced at the database layer via PostgreSQL 17 Row-Level Security (`FORCE ROW LEVEL SECURITY`), composite foreign keys `(tenant_id, id)`, and unprivileged application connections without `BYPASSRLS`.
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Channel ["Ingestion & Edge"]
-        WPP["WhatsApp Cloud API"] -->|Webhook| N8N["n8n (Pure Transport)"]
-        N8N -->|POST /v1/{tenant}/conversa/turno| API["FastAPI Application"]
+    subgraph Ingestion ["Ingestion & Authentication"]
+        CLIENT["WhatsApp Relay / Webhook Caller"] -->|POST /v1/conversations/turns<br/>Authorization: Bearer lq_live_...| AUTH["FastAPI Security Dependency"]
+        AUTH -->|SHA-256 Lookup| DB_KEYS[("core.api_keys")]
+        AUTH -->|Resolved tenant_id| APP["Application Context"]
     end
 
-    subgraph Core ["Application Core"]
-        API --> CTRL["WebhookController"]
-        CTRL --> IDEMP["Idempotency Guard (message_id)"]
-        CTRL --> SM["State Machine (Guided Slot-Filling)"]
-        CTRL --> LLM["LLM Adapter (OpenAI Structured Outputs)"]
-        CTRL --> SCORE["Scoring Service (Strategy Pattern)"]
+    subgraph AppCore ["Core Application Services"]
+        APP --> CTRL["TurnController"]
+        CTRL --> IDEMP["Idempotency Guard<br/>(Atomic INSERT ON CONFLICT)"]
+        CTRL --> SM["StateMachineService"]
+        SM --> LLM["LLM Adapter<br/>(OpenAI Structured Outputs)"]
+        SM --> SCORE["ScoringService<br/>(Strategy Pattern)"]
     end
 
-    subgraph Storage ["PostgreSQL 17 + pgvector (FORCE RLS)"]
-        SCORE --> R_SCORE[("scoring_results (Append-Only Audit)")]
+    subgraph Storage ["PostgreSQL 17 (FORCE RLS)"]
+        APP -.->|SET LOCAL app.current_tenant| DB_SESSION["Tenant DB Session"]
+        SCORE --> R_SCORE[("scoring_results (Audit Trail)")]
         SCORE --> R_RULES[("scoring_rule_sets (Versioned JSONB)")]
-        SM --> R_STATE[("conversation_states")]
-        LLM -.->|HNSW Cosine Search| R_VEC[("knowledge_base (pgvector)")]
+        SM --> R_STATE[("conversation_states (Row Lock FOR UPDATE)")]
+        LLM -.->|HNSW Vector Search| R_VEC[("knowledge_base (pgvector)")]
     end
 
-    subgraph Observability ["Real-Time UI & Docs"]
-        API --> DASH["Glassmorphism Dashboard (/dashboard)"]
-        API --> SWAG["Interactive Swagger UI (/docs)"]
+    subgraph AdminUI ["Management & Inspection"]
+        APP --> DASH["Real-Time Dashboard (/dashboard)"]
+        APP --> SWAG["Interactive Docs (/docs)"]
+        CLI["CLI Tool (keys)"] -->|Generate & Hash Keys| DB_KEYS
     end
 ```
 
 ---
 
-## ⚡ Key Engineering Highlights
+## Security Model
 
-### 1. True Multi-Tenancy with PostgreSQL 17 RLS & Composite FKs
-- **Zero data bleeding:** Every customer schema (`tenant_{name}`) operates under PostgreSQL 17 Row-Level Security (`FORCE ROW LEVEL SECURITY`).
-- **Composite Foreign Keys:** All entity relationships enforce `(tenant_id, id)` foreign keys, preventing a tenant from referencing another tenant's records even if UUIDs are guessed.
-- **Fail-Closed Session Context:** The app connects as an unprivileged user (`app_user`) with no `BYPASSRLS`. If tenant context is missing, the query immediately returns `0` rows.
+The system applies defense-in-depth across the API, database, and presentation layers:
 
-### 2. Deterministic Scoring Engine (Strategy Pattern)
-- **Knockout Rules (Immediate Disqualification):** Instant rejection for out-of-ICP profiles (e.g., students, interns, zero budget).
-- **Cumulative Weighted Scoring:** Criteria points based on Role, Revenue, Headcount, and Urgency.
-- **Versioned & Immutable Rules (ADR 003):** Rules are stored in database JSONB rows versioned by `(tenant_id, version)`. New weights take effect instantly without restarting containers.
-- **Append-Only Audit Trail:** Every score record links to the exact `rule_set_id` used, recording an itemized breakdown of why each point was awarded.
+### 1. API Key Authentication & Tenant Resolution
+- Webhook endpoints require a Bearer token (`Authorization: Bearer lq_live_<token>`).
+- API keys are hashed using **SHA-256** prior to storage in `core.api_keys`. Raw keys are never stored in the database.
+- Endpoints use uniform paths (`/v1/conversations/turns`, `/v1/leads`), removing tenant identifiers from URLs and deriving tenant scope entirely from the verified API key.
 
-### 3. Native pgvector Semantic Search (RAG)
-- Uses PostgreSQL's `pgvector` extension with **HNSW (Hierarchical Navigable Small World)** indexing for sub-millisecond cosine similarity queries over institutional documents.
-- No external vector database clusters needed (eliminates extra operational overhead and sync latency).
+### 2. Multi-Tenancy via PostgreSQL Row-Level Security (RLS)
+- Every tenant operates with dedicated schemas (`tenant_<slug>`) and tables configured with `FORCE ROW LEVEL SECURITY`.
+- Application database connections use an unprivileged role (`app_user`) that does **not** have the `BYPASSRLS` permission.
+- The active tenant is established per session via `SET LOCAL app.current_tenant = '<tenant_id>'`. If the variable is unset or invalid, RLS policies fail closed and queries return zero rows.
+- All tenant tables enforce composite foreign keys including `tenant_id` to guarantee cross-tenant referential integrity.
 
-### 4. Message Idempotency
-- Incoming WhatsApp webhook retries are deduplicated using `message_id`. Replays return the cached response with zero LLM API cost.
+### 3. Dashboard Anti-XSS Protection
+- The administrative dashboard uses **Jinja2 autoescape** to prevent server-side template injection.
+- Client-side DOM rendering is performed strictly via `document.createElement()` and `element.textContent`, eliminating `innerHTML` injection risks from untrusted lead input.
+
+### 4. PII Protection & Structured Logging
+- Phone numbers and identifying lead data are masked in application logs (e.g. `+55 11 9****-**88`).
+- Logging outputs structured JSON suitable for central log aggregation.
 
 ---
 
-## 🎯 Lead Scoring Matrix (B2B ICP Example)
+## Scoring Engine (Strategy Pattern)
 
-The active rule set evaluates leads deterministically against an ideal customer profile:
+Lead scoring evaluates extracted lead attributes against data-driven rules stored in `scoring_rule_sets`:
 
-| Rule Type | Evaluated Field | Matching Value | Outcome / Points |
+- **Knockout Rules (`KnockoutStrategy`):** Immediate disqualification on prohibited attributes (e.g., students, unsupported regions). Returns a typed `StrategyResult(is_knockout=True)` that halts evaluation early.
+- **Exact Match Rules (`ExactMatchStrategy`):** Cumulative point allocation based on validated values (e.g., job role, revenue bracket).
+- **Auditability:** Evaluation produces an immutable `ScoringResult(final_score, is_qualified, is_knocked_out, reasons)` stored in `scoring_results` with foreign keys referencing the exact rule set version used.
+- **Schema Validation:** Rule definitions loaded from database JSONB are strictly validated via Pydantic discriminated unions (`KnockoutRuleModel`, `ExactMatchRuleModel`), preventing runtime failures on malformed rules.
+
+### Example Scoring Matrix
+
+| Rule Type | Evaluated Field | Value / Condition | Points / Action |
 |---|---|---|---|
-| **Knockout** | `role` | `"student"` / `"intern"` | **Immediate Disqualification (0 pts)** |
-| **Knockout** | `revenue` | `"below $50k/yr"` | **Immediate Disqualification (0 pts)** |
+| **Knockout** | `role` | `"estudante"` / `"intern"` | **Immediate Disqualification** |
 | **Exact Match** | `role` | `"CEO"` / `"Founder"` | **+50 points** |
 | **Exact Match** | `role` | `"Director"` / `"VP"` | **+40 points** |
-| **Exact Match** | `role` | `"Manager"` / `"Lead"` | **+25 points** |
-| **Exact Match** | `revenue` | `">$10M/year"` | **+50 points** |
-| **Exact Match** | `revenue` | `"$1M - $10M/year"` | **+35 points** |
-| **Exact Match** | `company_size` | `"100+ employees"` | **+30 points** |
-| **Exact Match** | `urgency` | `"immediate"` | **+15 points** |
+| **Exact Match** | `revenue_tier` | `"above_10m"` | **+50 points** |
+| **Exact Match** | `revenue_tier` | `"2m_to_10m"` | **+35 points** |
+| **Exact Match** | `company_size` | `"large_51_to_200"` | **+30 points** |
 
-- **Qualification Threshold:** `50 points`  
-  - **Score >= 50:** Lead marked as **`QUALIFIED`** (routed to executive sales demo).
-  - **Score < 50:** Lead marked as **`NOT_QUALIFIED`** (nurturing sequence).
+*Default qualification threshold: 50 points.*
 
 ---
 
-## 🔌 API Webhook Contract
+## API Webhook Contract
 
 ### Ingestion Endpoint
+
 ```http
-POST /v1/{tenant}/conversa/turno
+POST /v1/conversations/turns
+Authorization: Bearer lq_live_your_tenant_api_key
 Content-Type: application/json
 ```
 
-#### Request Payload (from n8n / WhatsApp Gateway):
+#### Request Payload
+
 ```json
 {
   "message_id": "wamid.HBgLMjU1NDk5OTk5ODg4OAA=",
   "phone_number": "+5511999998888",
-  "user_message": "Hello, I am the CEO of a tech company with 120 employees and $10M annual revenue. We need to deploy enterprise automation."
+  "user_message": "Hello, I am the CEO of a software company with 80 employees and annual revenue above $10M."
 }
 ```
 
-#### Response Payload (Deterministic Response & State):
+#### Response Payload
+
 ```json
 {
   "reply_message": "Welcome! Your profile matches our enterprise solutions perfectly. One of our account executives will contact you shortly!",
@@ -124,37 +136,16 @@ Content-Type: application/json
 }
 ```
 
----
-
-## 🛠️ Environment Configuration (`.env`)
-
-```ini
-# Database Connection (PostgreSQL 17 + pgvector)
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_NAME=b2b_lead_qualifier
-DB_USER=app_user
-DB_PASSWORD=your-secure-app-password
-DB_ADMIN_USER=postgres
-DB_ADMIN_PASSWORD=your-secure-admin-password
-
-# Application Settings
-API_ENV=development
-API_HOST=0.0.0.0
-API_PORT=8000
-OPENAI_API_KEY=sk-...
-
-# Production SSL (Automatic Caddy Let's Encrypt)
-DOMAIN=api.yourdomain.com
-```
+#### Idempotency
+Duplicate webhook retries with the same `message_id` are caught atomically via `INSERT INTO messages ... ON CONFLICT DO NOTHING`. If a duplicate is received, the system returns `current_state: DUPLICATE_IGNORED` without re-running LLM inference or scoring.
 
 ---
 
-## 🚀 Quick Start (Local Development)
+## Quick Start (Local Development)
 
 ### Prerequisites
 - [Python 3.12+](https://www.python.org/)
-- [uv](https://docs.astral.sh/uv/) (Extremely fast Python package installer)
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [Docker & Docker Compose](https://www.docker.com/)
 
 ### 1. Install Dependencies
@@ -162,62 +153,95 @@ DOMAIN=api.yourdomain.com
 uv sync
 ```
 
-### 2. Start PostgreSQL 17 + pgvector
+### 2. Configure Environment
+Copy the example environment file:
 ```bash
-docker compose up -d postgres
+cp .env.example .env
 ```
+Ensure database credentials and your `OPENAI_API_KEY` are populated in `.env`.
 
-### 3. Run Migrations & Demo Seed
+### 3. Start Database & Run Migrations
 ```bash
-# Run migrations via dbmate container
+# Start PostgreSQL 17 with pgvector
+docker compose up -d postgres
+
+# Apply database migrations via dbmate
 docker compose --profile tools run --rm dbmate up
 
-# Seed demo tenant with active B2B scoring rules
+# Seed demo tenant
 docker exec -i b2b_db psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
 ```
 
-### 4. Start the Application
+### 4. Generate a Tenant API Key
+Use the administrative CLI to provision a secure API key for the demo tenant:
 ```bash
-uv run uvicorn lead_qualifier.api.main:app --reload
+uv run python -m lead_qualifier.cli.keys create-key --tenant demo --name "Local Development Key"
+```
+The CLI outputs the plain-text key (e.g. `lq_live_...`). Store it securely; the database retains only the SHA-256 hash.
+
+### 5. Start the Application
+```bash
+uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 5. Open in Your Browser
-- **Swagger UI (Interactive API Docs):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **Live Glassmorphism Dashboard:** [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
+- **Interactive API Docs (Swagger UI):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Monitoring Dashboard:** [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
 - **Healthcheck:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
 ---
 
-## 🧪 Real-World Integration Tests (No Mocks)
+## Testing & Quality Assurance
 
-This project strictly adheres to **real-world database integration testing**. Tests run against a live PostgreSQL 17 instance inside Docker:
-
+### Run Unit Tests (In-Memory)
+Unit tests validate scoring strategies, schema models, and edge cases in milliseconds without database dependencies:
 ```bash
-# Run complete test suite (RLS isolation, pgvector HNSW search, idempotency)
-uv run pytest
+uv run pytest tests/unit/
+```
 
-# Static analysis and formatting validation
+### Run Integration Tests (Real PostgreSQL)
+Integration tests run against a running PostgreSQL 17 container, validating RLS boundaries, composite foreign keys, and API key authentication:
+```bash
+uv run pytest tests/integration/
+```
+
+### Run Evaluation Harness
+Benchmark LLM slot extraction accuracy against the synthetic golden dataset (`data/golden_dataset.json`):
+```bash
+uv run python -m tests.evaluation.harness
+```
+
+### Linting & Static Type Checking
+```bash
+# Run Ruff lint checks
 uv run ruff check .
+
+# Check code formatting
+uv run ruff format --check .
+
+# Run strict type checking
+uv run mypy src tests
 ```
 
 ---
 
-## 📦 Production Deployment
+## Architectural Decision Records (ADRs)
 
-The project features a **multi-stage Docker build** producing an ultra-compact **72MB image**, fronted by **Caddy** for automatic Let's Encrypt TLS:
+Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 
-```bash
-# Production deployment with automated HTTPS
-docker compose --profile prod up --build -d
-```
-
-Continuous Deployment pipeline included via **GitHub Actions** (`.github/workflows/deploy.yml`) with zero-downtime container rolling.
+- [ADR 0001: LLM Only at the Edge](docs/adr/0001-llm-only-at-the-edge.md) — Constraining probabilistic AI to slot extraction while keeping decision logic deterministic.
+- [ADR 0002: Multi-Tenancy with Schema-per-Tenant and RLS](docs/adr/0002-multi-tenancy-with-schema-per-tenant-and-rls.md) — Defense-in-depth isolation via PostgreSQL 17 schemas, RLS, and composite foreign keys.
+- [ADR 0003: API Key Authentication and Tenant Resolution](docs/adr/0003-api-key-authentication.md) — Centralized SHA-256 API key authentication decoupling tenant IDs from public URLs.
 
 ---
 
-## 👤 Author
+## Known Trade-offs & Limitations
 
-**Renan Maciel**  
-Backend & Data Engineer · Python · PostgreSQL · AI Agents  
-- [LinkedIn](https://www.linkedin.com/in/rmacielsantos/)  
-- [GitHub Profile](https://github.com/Renan-Maciel-Santos)
+1. **LLM Edge Latency:** Each turn requiring slot extraction issues a synchronous request to the LLM API (~1-2 seconds response time). Future revisions can introduce local quantized models or caching for repeated phrases.
+2. **Schema-per-Tenant Scale:** Schema-per-tenant provides strong isolation and straightforward data lifecycle management, but PostgreSQL catalogs experience overhead beyond several hundred schemas on a single instance.
+3. **Webhook Concurrency:** Webhooks are currently processed within FastAPI worker processes. In high-volume WhatsApp campaign spikes, fronting the endpoint with a persistent message broker (e.g., Redis Streams, RabbitMQ) is recommended to absorb ingestion bursts.
+
+---
+
+## License
+
+This project is licensed under the terms of the [MIT License](LICENSE).
