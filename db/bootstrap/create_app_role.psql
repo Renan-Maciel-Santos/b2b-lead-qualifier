@@ -22,11 +22,3 @@ SELECT format(
     :'app_password'
 )
 \gexec
-
--- Cria optime_app temporariamente se necessario para a primeira migracao
-SELECT format(
-    'CREATE ROLE optime_app WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
-    :'app_password'
-)
-WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'optime_app' OR rolname = 'app_user')
-\gexec
