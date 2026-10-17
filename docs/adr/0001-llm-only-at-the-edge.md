@@ -18,6 +18,7 @@ We enforce a strict separation of concerns between natural language interpretati
    All business logic, multi-turn state transitions, knockout evaluations, and point scoring run in pure Python services backed by ACID transactions in PostgreSQL.
    - Qualification criteria are modeled via the Strategy pattern (`KnockoutStrategy`, `ExactMatchStrategy`).
    - Scoring rules are stored as versioned records in the database (`scoring_rule_sets`), ensuring reproducible and fully auditable evaluation without modifying code.
+   - Evaluation adheres to a fail-early knockout principle (disqualifying immediately upon prohibited values) while deferring positive qualification until all mandatory slots are collected (see ADR 0005).
 
 ## Consequences
 - **Positive**:

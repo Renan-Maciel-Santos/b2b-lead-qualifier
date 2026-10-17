@@ -86,9 +86,10 @@ The system applies defense-in-depth across the API, database, and presentation l
 
 Lead scoring evaluates extracted lead attributes against data-driven rules stored in `scoring_rule_sets`:
 
-- **Knockout Rules (`KnockoutStrategy`):** Immediate disqualification on prohibited attributes (e.g., students, unsupported regions). Returns a typed `StrategyResult(is_knockout=True)` that halts evaluation early.
+- **Knockout Rules (`KnockoutStrategy`):** Immediate disqualification on prohibited attributes (e.g., students, unsupported regions). Returns a typed `StrategyResult(is_knockout=True)` that halts evaluation early and terminates dialogue immediately (fail-early).
 - **Exact Match Rules (`ExactMatchStrategy`):** Cumulative point allocation based on validated values (e.g., job role, revenue bracket).
-- **Auditability:** Evaluation produces an immutable `ScoringResult(final_score, is_qualified, is_knocked_out, reasons)` stored in `scoring_results` with foreign keys referencing the exact rule set version used.
+- **Fail-Early Knockout vs. Complete Qualification (ADR 0005):** Knockout rules terminate the conversation immediately at any turn (`DISQUALIFIED`). Conversely, positive qualification (`QUALIFIED` or `NOT_QUALIFIED`) can only be decided after **all required slots** (configured or derived from rules) have been collected. This prevents high-scoring attributes (like a CEO title) from prematurely bypassing knockout checks on uncollected attributes (like minimum revenue).
+- **Auditability:** Evaluation produces an immutable `ScoringResult(final_score, is_qualified, is_knocked_out, reasons)` stored in `scoring_results` only when a terminal state is reached, referencing the exact rule set version used.
 - **Schema Validation:** Rule definitions loaded from database JSONB are strictly validated via Pydantic discriminated unions (`KnockoutRuleModel`, `ExactMatchRuleModel`), preventing runtime failures on malformed rules.
 
 ### Example Scoring Matrix
@@ -231,6 +232,8 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 - [ADR 0001: LLM Only at the Edge](docs/adr/0001-llm-only-at-the-edge.md) — Constraining probabilistic AI to slot extraction while keeping decision logic deterministic.
 - [ADR 0002: Multi-Tenancy with Schema-per-Tenant and RLS](docs/adr/0002-multi-tenancy-with-schema-per-tenant-and-rls.md) — Defense-in-depth isolation via PostgreSQL 17 schemas, RLS, and composite foreign keys.
 - [ADR 0003: API Key Authentication and Tenant Resolution](docs/adr/0003-api-key-authentication.md) — Centralized SHA-256 API key authentication decoupling tenant IDs from public URLs.
+- [ADR 0004: Transaction Boundaries and LLM Calls](docs/adr/0004-transaction-boundaries-and-llm-calls.md) — Decoupled transaction boundaries, zero database locks during LLM inference, and transaction-scoped fail-closed tenant context.
+- [ADR 0005: Fail-Early Knockouts and Complete Qualification](docs/adr/0005-fail-early-knockout-and-complete-qualification.md) — Terminating dialogue immediately on knockout while requiring complete slot collection before qualification.
 
 ---
 
