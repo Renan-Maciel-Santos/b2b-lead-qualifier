@@ -22,7 +22,7 @@ from lead_qualifier.core.messages import (
     QUALIFIED_REPLY,
 )
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-from lead_qualifier.core.scoring.strategy import build_strategies_from_rules
+from lead_qualifier.core.scoring.strategy import parse_rule_set_config
 from lead_qualifier.core.tenant import TenantContext
 from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
@@ -40,6 +40,7 @@ class StateMachineService:
         idempotency_timeout_seconds: int = 60,
         pool: AsyncConnectionPool | AsyncConnection | None = None,
         tenant_ctx: TenantContext | None = None,
+        required_slots: list[str] | None = None,
     ) -> None:
         """Initialize state machine service with repository or unit of work dependencies.
 
@@ -50,6 +51,7 @@ class StateMachineService:
             idempotency_timeout_seconds: Timeout after which stalled processing messages can be reclaimed.
             pool: Optional connection pool or direct connection for transaction-scoped unit of work.
             tenant_ctx: Optional immutable TenantContext.
+            required_slots: Optional list of mandatory slots before qualification can complete.
         """
         self.repo = repo
         self.pool = pool
@@ -57,6 +59,7 @@ class StateMachineService:
         self.llm_adapter = llm_adapter or OpenAIAdapter()
         self.scoring_service = scoring_service
         self.idempotency_timeout_seconds = idempotency_timeout_seconds
+        self.required_slots = required_slots
 
     @asynccontextmanager
     async def _uow(self) -> AsyncIterator[ConversationRepository]:
@@ -82,8 +85,8 @@ class StateMachineService:
     async def _resolve_scoring_engine(
         self,
         repo: ConversationRepository,
-    ) -> tuple[ScoringService, str]:
-        """Resolve the scoring engine and active rule set identifier strictly from database.
+    ) -> tuple[ScoringService, str, list[str]]:
+        """Resolve the scoring engine, rule set ID, and required slot dependencies.
 
         Args:
             repo: Active repository instance within the current unit of work.
@@ -92,19 +95,30 @@ class StateMachineService:
             ActiveRuleSetNotFoundError: If no active rule set is configured for the tenant.
 
         Returns:
-            tuple[ScoringService, str]: Initialized engine and database rule set ID.
+            tuple[ScoringService, str, list[str]]: Engine, rule set ID, and mandatory slots.
         """
         rule_set = await repo.get_active_scoring_rule_set()
 
         if self.scoring_service is not None:
             rule_set_id = str(rule_set["id"]) if rule_set else "injected"
-            return self.scoring_service, rule_set_id
+            if self.required_slots is not None:
+                req_slots = self.required_slots
+            else:
+                derived: list[str] = []
+                for s in self.scoring_service.strategies:
+                    if hasattr(s, "field") and s.field and s.field not in derived:
+                        derived.append(str(s.field))
+                req_slots = derived
+            return self.scoring_service, rule_set_id, req_slots
 
         if rule_set is not None:
-            strategies = build_strategies_from_rules(rule_set["rules"])
+            strategies, derived_required = parse_rule_set_config(rule_set["rules"])
+            req_slots = self.required_slots if self.required_slots is not None else derived_required
             threshold = int(rule_set.get("qualification_threshold", 50))
-            return ScoringService(strategies, qualification_threshold=threshold), str(
-                rule_set["id"]
+            return (
+                ScoringService(strategies, qualification_threshold=threshold),
+                str(rule_set["id"]),
+                req_slots,
             )
 
         logger.error("No active scoring_rule_set configured for tenant in database.")
@@ -201,7 +215,9 @@ class StateMachineService:
                 # Accumulate and merge newly extracted slots over previous turn history
                 lead_data: dict[str, Any] = {**accumulated_slots, **new_slots}
 
-                scoring_engine, rule_set_id = await self._resolve_scoring_engine(repo)
+                scoring_engine, rule_set_id, required_slots = await self._resolve_scoring_engine(
+                    repo
+                )
                 score_result = scoring_engine.calculate_score(lead_data)
 
                 final_score = score_result.final_score
@@ -209,16 +225,20 @@ class StateMachineService:
                 is_knocked_out = score_result.is_knocked_out
                 reasons = score_result.reasons
 
-                has_role = lead_data.get("role") is not None
-                has_revenue = (
-                    lead_data.get("revenue_tier") is not None
-                    or lead_data.get("revenue") is not None
-                )
+                def _is_slot_filled(slot_name: str, data: dict[str, Any]) -> bool:
+                    if slot_name in ("revenue", "revenue_tier"):
+                        return (
+                            data.get("revenue_tier") is not None or data.get("revenue") is not None
+                        )
+                    val = data.get(slot_name)
+                    return val is not None and val != ""
 
-                # Branch 1: Immediate disqualification (knockout rule triggered)
+                missing_slots = [s for s in required_slots if not _is_slot_filled(s, lead_data)]
+
+                # Branch 1: Immediate disqualification (knockout rule triggered at any time)
                 if is_knocked_out:
                     logger.warning(
-                        "Lead %s disqualified immediately.",
+                        "Lead %s disqualified immediately via knockout rule.",
                         mask_phone_number(request.phone_number),
                     )
                     new_state = ConversationState.DISQUALIFIED
@@ -233,10 +253,10 @@ class StateMachineService:
                         audit_trail=reasons,
                     )
 
-                # Branch 2: Lead qualified or all required slots collected
-                elif is_qualified or (has_role and has_revenue):
+                # Branch 2: All required slots collected -> final evaluation (QUALIFIED or NOT_QUALIFIED)
+                elif not missing_slots:
                     logger.info(
-                        "Lead %s completed qualification with score %s.",
+                        "Lead %s completed all required slots with score %s.",
                         mask_phone_number(request.phone_number),
                         final_score,
                     )
@@ -256,17 +276,25 @@ class StateMachineService:
                         audit_trail=reasons,
                     )
 
-                # Branch 3: Slot filling - role missing
-                elif not has_role:
-                    new_state = ConversationState.AWAITING_ROLE
-                    reply = ASK_ROLE_REPLY
-                    is_finished = False
-
-                # Branch 4: Slot filling - revenue missing
+                # Branch 3: Missing required slot(s) -> ask next missing slot in configured order
                 else:
-                    new_state = ConversationState.AWAITING_REVENUE
-                    reply = ASK_REVENUE_REPLY
+                    next_slot = missing_slots[0]
+                    if next_slot in ("revenue", "revenue_tier"):
+                        new_state = ConversationState.AWAITING_REVENUE
+                        reply = ASK_REVENUE_REPLY
+                    elif next_slot == "role":
+                        new_state = ConversationState.AWAITING_ROLE
+                        reply = ASK_ROLE_REPLY
+                    else:
+                        candidate_state = f"AWAITING_{next_slot.upper()}"
+                        new_state = (
+                            ConversationState(candidate_state)
+                            if candidate_state in ConversationState._value2member_map_
+                            else ConversationState.AWAITING_ROLE
+                        )
+                        reply = f"Por favor, informe seu {next_slot}."
                     is_finished = False
+                    # Do not save scoring_result until a final terminal state is reached
 
                 # Persist updated state and merged accumulated slots
                 await repo.save_conversation_state(
