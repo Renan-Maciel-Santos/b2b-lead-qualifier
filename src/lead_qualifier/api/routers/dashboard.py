@@ -1,6 +1,6 @@
 """Dashboard router providing lead monitoring endpoints and HTML view rendering."""
 
-import os
+from pathlib import Path
 from typing import Annotated, Any
 
 import jinja2
@@ -13,9 +13,10 @@ from lead_qualifier.core.security import get_tenant_connection
 
 router = APIRouter(tags=["Dashboard"])
 
-template_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "templates"))
+# Resolve template directory path using pathlib relative to this module
+template_dir = Path(__file__).resolve().parent.parent.parent / "templates"
 jinja_env = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(template_dir),
+    loader=jinja2.FileSystemLoader(str(template_dir)),
     autoescape=True,
 )
 

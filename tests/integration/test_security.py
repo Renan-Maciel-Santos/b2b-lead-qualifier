@@ -127,6 +127,13 @@ async def test_dashboard_template_contains_no_innerhtml_with_lead_data(
     assert "textContent" in html
 
 
+async def test_get_dashboard_returns_200(api_client: AsyncClient) -> None:
+    """Verify that GET /dashboard renders the dashboard template successfully with HTTP 200."""
+    response = await api_client.get("/dashboard")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+
+
 async def test_app_user_denied_direct_select_on_core_api_keys(
     db_app: AsyncConnection,
 ) -> None:
