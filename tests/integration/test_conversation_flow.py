@@ -142,3 +142,72 @@ async def test_duplicate_message_id_via_http_endpoint(
     assert res2.status_code == 200
     assert res2.json()["current_state"] == "DUPLICATE_IGNORED"
     assert res2.json()["reply_message"] == ""
+
+
+async def test_llm_call_does_not_hold_conversation_lock(
+    db_app: AsyncConnection,
+) -> None:
+    """Verify with real PostgreSQL that the LLM extraction does not hold a row lock on conversation_states."""
+    import asyncio
+    import os
+
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    repo = ConversationRepository(db_app)
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    # Pre-create the conversation state row
+    await repo.get_or_create_conversation_state(phone)
+    await db_app.commit()
+
+    llm_thinking = asyncio.Event()
+    llm_can_proceed = asyncio.Event()
+
+    async def slow_extract_slots(_message: str) -> LeadSlots:
+        llm_thinking.set()
+        await llm_can_proceed.wait()
+        return LeadSlots(revenue="5 milhoes ao ano")
+
+    mock_adapter = OpenAIAdapter(api_key="mock_key")
+    mock_adapter.extract_slots = AsyncMock(side_effect=slow_extract_slots)  # type: ignore[method-assign]
+    service = StateMachineService(repo=repo, llm_adapter=mock_adapter)
+
+    turn_task = asyncio.create_task(
+        service.process_turn(
+            TurnRequest(
+                message_id=f"msg_lock_{uuid.uuid4()}",
+                phone_number=phone,
+                user_message="Faturamos 5 milhoes ao ano.",
+            )
+        )
+    )
+
+    # Wait until LLM is actively extracting slots
+    await asyncio.wait_for(llm_thinking.wait(), timeout=5.0)
+
+    # Open a SECOND concurrent database connection to test row lock availability
+    app_user = os.getenv("DB_USER", "app_user")
+    app_pwd = os.getenv("DB_PASSWORD", "secret")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
+    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
+
+    async with await AsyncConnection.connect(conn_str) as conn2:
+        await set_test_tenant_context(conn2, TENANT_DEMO, "tenant_demo")
+        # If StateMachine held an active lock during LLM execution, NOWAIT would raise LockNotAvailable
+        async with conn2.cursor() as cur:
+            await cur.execute(
+                "SELECT current_state FROM conversation_states WHERE phone_number = %s FOR UPDATE NOWAIT",
+                (phone,),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+        await conn2.rollback()
+
+    # Release LLM event and confirm turn finishes normally
+    llm_can_proceed.set()
+    response = await asyncio.wait_for(turn_task, timeout=5.0)
+    assert response is not None
+    assert response.current_state in (
+        ConversationState.QUALIFIED,
+        ConversationState.AWAITING_ROLE,
+        ConversationState.AWAITING_REVENUE,
+    )
