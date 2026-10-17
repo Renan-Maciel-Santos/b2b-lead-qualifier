@@ -1,4 +1,4 @@
-"""Conversation persistence repository for message idempotency and qualification scoring."""
+"""Conversation persistence repository for atomic idempotency, state locking, and scoring."""
 
 import json
 from typing import Any
@@ -9,7 +9,7 @@ from psycopg.rows import dict_row
 
 
 class ConversationRepository:
-    """Repository managing message idempotency and append-only scoring results."""
+    """Repository managing atomic message idempotency, conversation state locks, and scoring results."""
 
     def __init__(self, conn: AsyncConnection) -> None:
         """Initialize repository with an active tenant-scoped database connection.
@@ -19,34 +19,94 @@ class ConversationRepository:
         """
         self.conn = conn
 
-    async def is_message_processed(self, message_id: str) -> bool:
-        """Check whether a message ID has already been processed by the tenant.
+    async def acquire_message_lock(self, message_id: str) -> bool:
+        """Atomically register a message ID using INSERT ON CONFLICT DO NOTHING RETURNING.
+
+        Guarantees race-free idempotency: returns True if this worker won the lock and
+        should process the turn, or False if the message was already recorded.
 
         Args:
             message_id: Inbound message identifier from transport.
 
         Returns:
-            bool: True if already recorded, False otherwise.
+            bool: True if message was newly inserted; False if already processed.
         """
         async with self.conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
-                "SELECT 1 FROM processed_messages WHERE message_id = %s",
+                """
+                INSERT INTO processed_messages (message_id)
+                VALUES (%s)
+                ON CONFLICT (tenant_id, message_id) DO NOTHING
+                RETURNING message_id
+                """,
                 (message_id,),
             )
-            result = await cur.fetchone()
-            return result is not None
+            row = await cur.fetchone()
+            return row is not None
 
-    async def mark_message_processed(self, message_id: str) -> None:
-        """Record an inbound message in the idempotency table.
+    async def get_or_create_conversation_state(
+        self,
+        phone_number: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """Retrieve conversation state and lock the row using SELECT ... FOR UPDATE.
+
+        Ensures serialized state transitions and slot merging when concurrent turns
+        arrive for the same lead.
 
         Args:
-            message_id: Unique message identifier to record.
+            phone_number: Evaluated lead phone number in E.164 format.
+
+        Returns:
+            tuple[str, dict[str, Any]]: Tuple of (current_state, accumulated_slots).
+        """
+        async with self.conn.cursor(row_factory=dict_row) as cur:
+            # Guarantee the row exists idempotently
+            await cur.execute(
+                """
+                INSERT INTO conversation_states (phone_number, current_state, accumulated_slots)
+                VALUES (%s, 'INITIAL', '{}'::jsonb)
+                ON CONFLICT (tenant_id, phone_number) DO NOTHING
+                """,
+                (phone_number,),
+            )
+            # Exclusively lock the row for the transaction
+            await cur.execute(
+                """
+                SELECT current_state, accumulated_slots
+                FROM conversation_states
+                WHERE phone_number = %s
+                FOR UPDATE
+                """,
+                (phone_number,),
+            )
+            row = await cur.fetchone()
+            if not row:
+                return "INITIAL", {}
+            return str(row["current_state"]), dict(row["accumulated_slots"] or {})
+
+    async def save_conversation_state(
+        self,
+        phone_number: str,
+        current_state: str,
+        accumulated_slots: dict[str, Any],
+    ) -> None:
+        """Update the conversation state and merged accumulated slots for the lead.
+
+        Args:
+            phone_number: Evaluated lead phone number in E.164 format.
+            current_state: Target lifecycle state string.
+            accumulated_slots: Comprehensive dictionary of accumulated lead slots.
         """
         async with self.conn.cursor() as cur:
-            # tenant_id is automatically assigned via DEFAULT (app.current_tenant)
             await cur.execute(
-                "INSERT INTO processed_messages (message_id) VALUES (%s) ON CONFLICT DO NOTHING",
-                (message_id,),
+                """
+                UPDATE conversation_states
+                SET current_state = %s,
+                    accumulated_slots = %s,
+                    updated_at = now()
+                WHERE phone_number = %s
+                """,
+                (current_state, json.dumps(accumulated_slots), phone_number),
             )
 
     async def get_active_scoring_rule_set(self) -> dict[str, Any] | None:
