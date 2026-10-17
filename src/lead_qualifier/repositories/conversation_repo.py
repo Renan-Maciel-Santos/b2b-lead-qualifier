@@ -185,12 +185,12 @@ class ConversationRepository:
         """Retrieve the currently active scoring rule set for the tenant.
 
         Returns:
-            dict[str, Any] | None: Rule set record including JSONB rules, or None if not configured.
+            dict[str, Any] | None: Rule set record including JSONB rules and required slots, or None if not configured.
         """
         async with self.conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 """
-                SELECT id, version, rules, qualification_threshold
+                SELECT id, version, rules, required_slots, qualification_threshold
                 FROM scoring_rule_sets
                 WHERE is_active = true
                 LIMIT 1

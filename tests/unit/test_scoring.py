@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
+from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.exceptions import ActiveRuleSetNotFoundError
 from lead_qualifier.core.schemas.conversation import TurnRequest
 from lead_qualifier.core.scoring.strategy import (
@@ -226,24 +227,82 @@ async def test_state_machine_raises_when_no_active_rule_set() -> None:
         await service.process_turn(request)
 
 
-def test_rule_set_derives_required_slots_when_omitted() -> None:
-    """Verify that rule set without explicit required_slots derives dependencies from rule fields."""
+def test_rule_set_rejects_missing_or_empty_required_slots() -> None:
+    """Verify that rule sets without mandatory required_slots trigger a ValidationError."""
     rules: list[dict[str, Any]] = [
         {"type": "knockout", "field": "role", "value": "estagiario"},
         {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
-        {"type": "exact_match", "field": "revenue", "value": "5 milhoes", "points": 50},
     ]
-    # 1. From list payload without required_slots key
-    strategies, derived_slots = parse_rule_set_config(rules)
-    assert len(strategies) == 3
-    assert derived_slots == ["role", "revenue"]
 
-    # 2. From dict payload without required_slots key
-    _, dict_derived_slots = parse_rule_set_config({"rules": rules})
-    assert dict_derived_slots == ["role", "revenue"]
+    # 1. Rejects dictionary payload missing required_slots
+    with pytest.raises(ValidationError):
+        parse_rule_set_config({"rules": rules})
 
-    # 3. Explicit required_slots in dict payload takes precedence
-    _, explicit_slots = parse_rule_set_config(
-        {"rules": rules, "required_slots": ["role", "company_size", "revenue"]}
+    # 2. Rejects raw list payload without required_slots envelope
+    with pytest.raises(ValidationError):
+        parse_rule_set_config(rules)
+
+    # 3. Rejects empty required_slots list
+    with pytest.raises(ValidationError):
+        parse_rule_set_config({"rules": rules, "required_slots": []})
+
+
+def test_rule_set_rejects_invalid_required_slot_fields_or_duplicates() -> None:
+    """Verify that required_slots rejects unknown fields or duplicate entries."""
+    rules: list[dict[str, Any]] = [
+        {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+    ]
+
+    # 1. Rejects non-existent slot fields
+    with pytest.raises(ValidationError) as exc_info:
+        parse_rule_set_config({"rules": rules, "required_slots": ["non_existent_slot"]})
+    assert "not a valid field in LeadSlots" in str(exc_info.value)
+
+    # 2. Rejects duplicate slots
+    with pytest.raises(ValidationError) as exc_info2:
+        parse_rule_set_config({"rules": rules, "required_slots": ["role", "role"]})
+    assert "duplicate fields" in str(exc_info2.value)
+
+
+@pytest.mark.asyncio
+async def test_state_machine_question_order_respects_required_slots_list() -> None:
+    """Verify that the state machine prompts for missing slots strictly in the declared order."""
+    scoring_service = ScoringService(
+        strategies=[
+            ExactMatchStrategy(field="role", target_value="CEO", points=50),
+            ExactMatchStrategy(field="revenue", target_value="5m", points=50),
+        ],
+        qualification_threshold=50,
     )
-    assert explicit_slots == ["role", "company_size", "revenue"]
+
+    mock_llm = AsyncMock()
+    mock_llm.extract_slots.return_value = AsyncMock(model_dump=lambda **_: {})
+
+    mock_repo = AsyncMock()
+    mock_repo.acquire_message_lock.return_value = True
+    mock_repo.get_conversation_state_read_only.return_value = ("INITIAL", {})
+    mock_repo.get_or_create_conversation_state.return_value = ("INITIAL", {})
+    mock_repo.save_conversation_state.return_value = None
+    mock_repo.mark_message_done.return_value = None
+
+    # Order 1: revenue declared before role -> prompts for revenue first
+    service_rev_first = StateMachineService(
+        repo=mock_repo,
+        llm_adapter=mock_llm,
+        scoring_service=scoring_service,
+        required_slots=["revenue", "role"],
+    )
+    req1 = TurnRequest(message_id="msg_order_1", phone_number="+5511999991111", user_message="Ola")
+    res1 = await service_rev_first.process_turn(req1)
+    assert res1.current_state == ConversationState.AWAITING_REVENUE
+
+    # Order 2: role declared before revenue -> prompts for role first
+    service_role_first = StateMachineService(
+        repo=mock_repo,
+        llm_adapter=mock_llm,
+        scoring_service=scoring_service,
+        required_slots=["role", "revenue"],
+    )
+    req2 = TurnRequest(message_id="msg_order_2", phone_number="+5511999992222", user_message="Ola")
+    res2 = await service_role_first.process_turn(req2)
+    assert res2.current_state == ConversationState.AWAITING_ROLE

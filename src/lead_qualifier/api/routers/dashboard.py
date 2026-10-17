@@ -64,7 +64,7 @@ def render_dashboard() -> str:
     """
     try:
         template = jinja_env.get_template("dashboard.html")
-        return template.render()
+        return str(template.render())
     except jinja2.TemplateNotFound as err:
         raise HTTPException(
             status_code=404,

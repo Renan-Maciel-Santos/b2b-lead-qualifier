@@ -103,17 +103,15 @@ class StateMachineService:
             rule_set_id = str(rule_set["id"]) if rule_set else "injected"
             if self.required_slots is not None:
                 req_slots = self.required_slots
+            elif rule_set is not None:
+                _, req_slots = parse_rule_set_config(rule_set)
             else:
-                derived: list[str] = []
-                for s in self.scoring_service.strategies:
-                    if hasattr(s, "field") and s.field and s.field not in derived:
-                        derived.append(str(s.field))
-                req_slots = derived
+                req_slots = ["role", "revenue"]
             return self.scoring_service, rule_set_id, req_slots
 
         if rule_set is not None:
-            strategies, derived_required = parse_rule_set_config(rule_set["rules"])
-            req_slots = self.required_slots if self.required_slots is not None else derived_required
+            strategies, required_slots = parse_rule_set_config(rule_set)
+            req_slots = self.required_slots if self.required_slots is not None else required_slots
             threshold = int(rule_set.get("qualification_threshold", 50))
             return (
                 ScoringService(strategies, qualification_threshold=threshold),
