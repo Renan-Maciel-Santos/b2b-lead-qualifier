@@ -125,3 +125,34 @@ async def test_dashboard_template_contains_no_innerhtml_with_lead_data(
     assert "tbody.innerHTML = ` " not in html
     assert "document.createElement" in html
     assert "textContent" in html
+
+
+async def test_app_user_denied_direct_select_on_core_api_keys(
+    db_app: AsyncConnection,
+) -> None:
+    """Verify that app_user cannot execute direct SELECT on core.api_keys (least privilege),
+
+    while resolution via core.resolve_tenant_by_api_key continues functioning.
+    """
+    import hashlib
+
+    from psycopg.errors import InsufficientPrivilege
+
+    # 1. Direct SELECT on core.api_keys must fail with InsufficientPrivilege (permission denied)
+    with pytest.raises(InsufficientPrivilege):
+        async with db_app.cursor() as cur:
+            await cur.execute("SELECT * FROM core.api_keys")
+
+    # Rollback transaction poisoned by the permission error
+    await db_app.rollback()
+
+    # 2. Key resolution via the SECURITY DEFINER function must succeed for app_user
+    key_hash = hashlib.sha256(API_KEY_DEMO.encode("utf-8")).hexdigest()
+    async with db_app.cursor() as cur:
+        await cur.execute(
+            "SELECT tenant_id, schema_name FROM core.resolve_tenant_by_api_key(%s)",
+            (key_hash,),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        assert row[1] == "tenant_demo"
