@@ -25,8 +25,8 @@ from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from lead_qualifier.services.state_machine import StateMachineService
 from tests.conftest import (
-    API_KEY_DEMO,
-    TENANT_DEMO,
+    API_KEY_TEST,
+    TENANT_TEST,
     set_test_tenant_context,
 )
 
@@ -37,7 +37,7 @@ async def test_multi_turn_conversation_accumulates_slots_and_qualifies(
     db_pool: AsyncConnectionPool,
 ) -> None:
     """Verify that a two-turn conversation correctly accumulates slots and completes qualification."""
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     # Mock OpenAI adapter to test deterministic domain extraction across turns
@@ -66,10 +66,7 @@ async def test_multi_turn_conversation_accumulates_slots_and_qualifies(
         assert slots1.get("role") == "CEO"
         assert "revenue" not in slots1
 
-    # Turn 2: Lead provides revenue
-    mock_adapter.extract_slots = AsyncMock(  # type: ignore[method-assign]
-        return_value=LeadSlots(revenue="5 milhoes ao ano")
-    )
+    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(revenue="5 milhoes ao ano"))  # type: ignore[method-assign]
 
     turn2_request = TurnRequest(
         message_id=f"msg_turn2_{uuid.uuid4()}",
@@ -96,7 +93,7 @@ async def test_duplicate_message_id_atomic_idempotency_via_service(
     db_pool: AsyncConnectionPool,
 ) -> None:
     """Verify that submitting the identical message_id twice returns DUPLICATE_IGNORED on the second turn."""
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
     duplicate_message_id = f"msg_dup_{uuid.uuid4()}"
 
@@ -128,7 +125,7 @@ async def test_duplicate_message_id_via_http_endpoint(
     """Verify idempotency enforcement over HTTP POST /v1/conversations/turns."""
     phone = "+5511999990001"
     message_id = f"http_msg_{uuid.uuid4()}"
-    headers = {"Authorization": f"Bearer {API_KEY_DEMO}"}
+    headers = {"Authorization": f"Bearer {API_KEY_TEST}"}
 
     payload = {
         "message_id": message_id,
@@ -154,7 +151,7 @@ async def test_llm_call_does_not_hold_conversation_lock(
     import asyncio
     import os
 
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     # Pre-create the conversation state row
@@ -196,7 +193,7 @@ async def test_llm_call_does_not_hold_conversation_lock(
     conn2 = await AsyncConnection.connect(conn_str)
     try:
         async with (
-            set_test_tenant_context(conn2, TENANT_DEMO, "tenant_demo") as scoped_conn,
+            set_test_tenant_context(conn2, TENANT_TEST, "tenant_test") as scoped_conn,
             scoped_conn.cursor() as cur,
         ):
             # If StateMachine held an active lock during LLM execution, NOWAIT would raise LockNotAvailable
@@ -230,7 +227,7 @@ async def test_connection_returned_to_pool_during_llm_call(
     Because the connection was returned before calling LLM, the second unit of work
     acquires the single pool connection immediately without timing out.
     """
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     app_user = os.getenv("DB_USER", "app_user")
@@ -301,7 +298,7 @@ async def test_ceo_knockout_on_revenue_disqualifies_immediately(
     Turn 2: Lead provides revenue="abaixo de 50 mil" (knockout condition).
     State must immediately transition to DISQUALIFIED, terminating dialogue.
     """
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
@@ -319,10 +316,7 @@ async def test_ceo_knockout_on_revenue_disqualifies_immediately(
     assert turn1_response.current_state == ConversationState.AWAITING_REVENUE
     assert turn1_response.is_finished is False
 
-    # Turn 2: Lead provides disqualified revenue -> knockout triggered immediately
-    mock_adapter.extract_slots = AsyncMock(  # type: ignore[method-assign]
-        return_value=LeadSlots(revenue="abaixo de 50 mil")
-    )
+    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(revenue="abaixo de 50 mil"))  # type: ignore[method-assign]
     turn2_response = await service.process_turn(
         TurnRequest(
             message_id=f"msg_ko_turn2_{uuid.uuid4()}",
@@ -338,7 +332,7 @@ async def test_first_turn_knockout_terminates_immediately(
     db_pool: AsyncConnectionPool,
 ) -> None:
     """Verify that a knockout triggered on the first turn terminates immediately without asking further slots."""
-    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")

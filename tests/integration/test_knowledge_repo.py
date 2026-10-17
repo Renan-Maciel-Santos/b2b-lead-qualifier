@@ -4,14 +4,14 @@ import pytest
 from psycopg import AsyncConnection
 
 from lead_qualifier.repositories.knowledge_repo import KnowledgeRepository
-from tests.conftest import TENANT_DEMO, TENANT_INVASOR, set_test_tenant_context
+from tests.conftest import TENANT_INVASOR, TENANT_TEST, set_test_tenant_context
 
 pytestmark = pytest.mark.asyncio
 
 
 async def test_knowledge_vector_search_and_rls(db_app: AsyncConnection) -> None:
     """Verify semantic vector retrieval within the tenant and cross-tenant isolation."""
-    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    await set_test_tenant_context(db_app, TENANT_TEST, "tenant_test")
 
     repo = KnowledgeRepository(db_app)
 

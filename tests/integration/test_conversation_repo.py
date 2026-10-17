@@ -6,14 +6,14 @@ import pytest
 from psycopg import AsyncConnection
 
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
-from tests.conftest import TENANT_DEMO, set_test_tenant_context
+from tests.conftest import TENANT_TEST, set_test_tenant_context
 
 pytestmark = pytest.mark.asyncio
 
 
 async def test_repository_atomic_idempotency(db_app: AsyncConnection) -> None:
     """Verify race-free atomic idempotency using acquire_message_lock."""
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn:
         repo = ConversationRepository(conn)
         msg_id = f"msg_{uuid.uuid4()}"
 
@@ -26,7 +26,7 @@ async def test_repository_atomic_idempotency(db_app: AsyncConnection) -> None:
 
 async def test_repository_conversation_state_lifecycle(db_app: AsyncConnection) -> None:
     """Verify conversation state creation, row locking, and slot persistence."""
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn:
         repo = ConversationRepository(conn)
         phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
@@ -56,7 +56,7 @@ async def test_repository_save_scoring_result(db_app: AsyncConnection) -> None:
     qualified = True
     audit = ["Awarded 50 pts for CEO role", "Awarded 50 pts for revenue tier"]
 
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn:
         repo = ConversationRepository(conn)
         rule_set = await repo.get_active_scoring_rule_set()
         assert rule_set is not None
@@ -71,7 +71,7 @@ async def test_repository_save_scoring_result(db_app: AsyncConnection) -> None:
         )
 
     async with (
-        set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn,
+        set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn,
         conn.cursor() as cur,
     ):
         await cur.execute(
@@ -99,17 +99,17 @@ async def test_stuck_message_reprocessing_after_timeout(
     msg_id = f"msg_timeout_{uuid.uuid4()}"
 
     # 1. Message in processing within the timeout window remains blocked (DUPLICATE_IGNORED)
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn1:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn1:
         repo1 = ConversationRepository(conn1)
         assert await repo1.acquire_message_lock(msg_id, timeout_seconds=10) is True
 
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn2:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn2:
         repo2 = ConversationRepository(conn2)
         assert await repo2.acquire_message_lock(msg_id, timeout_seconds=10) is False
 
     # 2. Stuck message with updated_at older than timeout can be reprocessed
     async with (
-        set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn3,
+        set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn3,
         conn3.cursor() as cur,
     ):
         await cur.execute(
@@ -121,15 +121,15 @@ async def test_stuck_message_reprocessing_after_timeout(
             (msg_id,),
         )
 
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn4:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn4:
         repo4 = ConversationRepository(conn4)
         assert await repo4.acquire_message_lock(msg_id, timeout_seconds=10) is True
 
     # 3. Message in failed status can also be reprocessed immediately
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn5:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn5:
         repo5 = ConversationRepository(conn5)
         await repo5.mark_message_failed(msg_id)
 
-    async with set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo") as conn6:
+    async with set_test_tenant_context(db_app, TENANT_TEST, "tenant_test") as conn6:
         repo6 = ConversationRepository(conn6)
         assert await repo6.acquire_message_lock(msg_id, timeout_seconds=10) is True
