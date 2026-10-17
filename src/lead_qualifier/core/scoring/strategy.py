@@ -1,26 +1,44 @@
 """Scoring strategies implementing pluggable qualification logic (Strategy Pattern)."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+@dataclass(frozen=True)
+class StrategyResult:
+    """Outcome of an individual scoring strategy evaluation.
+
+    Attributes:
+        points: Integer delta to add to the cumulative lead score.
+        reason: Explanation of the evaluation decision for the audit trail.
+        is_knockout: Flag indicating whether this rule immediately disqualifies the lead.
+    """
+
+    points: int = 0
+    reason: str = ""
+    is_knockout: bool = False
 
 
 class ScoringStrategy(ABC):
     """Abstract base class for all lead qualification scoring rules."""
 
     @abstractmethod
-    def evaluate(self, lead_data: dict[str, Any]) -> tuple[int, str]:
-        """Evaluate lead attributes and return points awarded with an audit reason.
+    def evaluate(self, lead_data: dict[str, Any]) -> StrategyResult:
+        """Evaluate lead attributes and return a structured evaluation result.
 
         Args:
             lead_data: Key-value dictionary of extracted lead properties.
 
         Returns:
-            tuple[int, str]: Tuple of (score_delta, audit_reason).
+            StrategyResult: Score points, explanation, and knockout indicator.
         """
 
 
 class KnockoutStrategy(ScoringStrategy):
-    """Disqualifying strategy applying an extreme negative score on forbidden values."""
+    """Disqualifying strategy marking the lead as knocked out on restricted values."""
 
     def __init__(self, field: str, knockout_value: Any) -> None:
         """Initialize the knockout rule.
@@ -32,13 +50,16 @@ class KnockoutStrategy(ScoringStrategy):
         self.field = field
         self.knockout_value = knockout_value
 
-    def evaluate(self, lead_data: dict[str, Any]) -> tuple[int, str]:
+    def evaluate(self, lead_data: dict[str, Any]) -> StrategyResult:
         """Check whether the lead property matches the knockout criterion."""
         value = lead_data.get(self.field)
-        if value == self.knockout_value:
-            # -9999 represents a knockout penalty that triggers immediate rule execution halt
-            return -9999, f"Disqualified: '{self.field}' matches restricted value '{value}'"
-        return 0, ""
+        if value is not None and value == self.knockout_value:
+            return StrategyResult(
+                points=0,
+                reason=f"Disqualified: '{self.field}' matches restricted value '{value}'",
+                is_knockout=True,
+            )
+        return StrategyResult()
 
 
 class ExactMatchStrategy(ScoringStrategy):
@@ -56,39 +77,79 @@ class ExactMatchStrategy(ScoringStrategy):
         self.target_value = target_value
         self.points = points
 
-    def evaluate(self, lead_data: dict[str, Any]) -> tuple[int, str]:
+    def evaluate(self, lead_data: dict[str, Any]) -> StrategyResult:
         """Evaluate equality against target value and award points on match."""
         value = lead_data.get(self.field)
-        if value == self.target_value:
-            return self.points, f"Awarded {self.points} pts: '{self.field}' equals '{value}'"
-        return 0, ""
+        if value is not None and value == self.target_value:
+            return StrategyResult(
+                points=self.points,
+                reason=f"Awarded {self.points} pts: '{self.field}' equals '{value}'",
+                is_knockout=False,
+            )
+        return StrategyResult()
+
+
+class KnockoutRuleModel(BaseModel):
+    """Schema definition for a knockout scoring rule."""
+
+    type: Literal["knockout"]
+    field: str
+    value: Any
+
+
+class ExactMatchRuleModel(BaseModel):
+    """Schema definition for an exact match scoring rule."""
+
+    type: Literal["exact_match"]
+    field: str
+    value: Any
+    points: int
+
+
+RuleConfig = Annotated[KnockoutRuleModel | ExactMatchRuleModel, Field(discriminator="type")]
+
+
+class RuleListValidator(BaseModel):
+    """Validator ensuring every rule conforms to supported discriminated schemas."""
+
+    rules: list[RuleConfig]
 
 
 def build_strategies_from_rules(rules: list[dict[str, Any]]) -> list[ScoringStrategy]:
-    """Dynamically instantiate scoring strategies from JSON rule specifications.
+    """Dynamically instantiate and strictly validate scoring strategies from JSON specifications.
+
+    Uses Pydantic discriminated union validation to reject unknown rule types or invalid payloads.
+    Fixes falsy value bugs by checking explicit key presence rather than boolean truthiness.
 
     Args:
         rules: List of rule definitions loaded from the database JSONB column.
 
     Returns:
         list[ScoringStrategy]: Instantiated rule evaluators.
+
+    Raises:
+        pydantic.ValidationError: If any rule specification is malformed or uses an unknown type.
     """
+    normalized_rules: list[dict[str, Any]] = []
+    for raw in rules:
+        entry = dict(raw)
+        # Check explicit key presence to prevent false-negative bugs when value is falsy (0, False, "")
+        if "value" not in entry:
+            if "knockout_value" in entry:
+                entry["value"] = entry["knockout_value"]
+            elif "target_value" in entry:
+                entry["value"] = entry["target_value"]
+        normalized_rules.append(entry)
+
+    validated = RuleListValidator(rules=normalized_rules)  # type: ignore[arg-type]
+
     strategies: list[ScoringStrategy] = []
-    for rule in rules:
-        rule_type = rule.get("type")
-        if rule_type == "knockout":
+    for rule in validated.rules:
+        if isinstance(rule, KnockoutRuleModel):
+            strategies.append(KnockoutStrategy(field=rule.field, knockout_value=rule.value))
+        elif isinstance(rule, ExactMatchRuleModel):
             strategies.append(
-                KnockoutStrategy(
-                    field=rule["field"],
-                    knockout_value=rule.get("value") or rule.get("knockout_value"),
-                )
+                ExactMatchStrategy(field=rule.field, target_value=rule.value, points=rule.points)
             )
-        elif rule_type == "exact_match":
-            strategies.append(
-                ExactMatchStrategy(
-                    field=rule["field"],
-                    target_value=rule.get("value") or rule.get("target_value"),
-                    points=int(rule.get("points", 0)),
-                )
-            )
+
     return strategies
