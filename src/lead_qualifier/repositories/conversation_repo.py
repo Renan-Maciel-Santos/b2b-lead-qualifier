@@ -27,7 +27,7 @@ class ConversationRepository:
         - If a conflict occurs on (tenant_id, message_id), reclaims the message only if:
           1. status is 'failed', OR
           2. status is 'processing' and updated_at is older than timeout_seconds.
-        - Commits immediately in its own transaction so no database lock is held open.
+        - Transaction boundaries and commits are managed externally by the unit of work.
 
         Args:
             message_id: Inbound message identifier from transport.
@@ -52,7 +52,6 @@ class ConversationRepository:
                 (message_id, timeout_seconds),
             )
             row = await cur.fetchone()
-        await self.conn.commit()
         return row is not None
 
     async def mark_message_done(self, message_id: str) -> None:
@@ -72,7 +71,9 @@ class ConversationRepository:
             )
 
     async def mark_message_failed(self, message_id: str) -> None:
-        """Mark a message as failed and commit immediately so it can be retried.
+        """Mark a message as failed so it can be retried.
+
+        Transaction boundaries and commits are managed externally by the unit of work.
 
         Args:
             message_id: Message identifier to mark as failed.
@@ -86,7 +87,6 @@ class ConversationRepository:
                 """,
                 (message_id,),
             )
-        await self.conn.commit()
 
     async def get_conversation_state_read_only(
         self,

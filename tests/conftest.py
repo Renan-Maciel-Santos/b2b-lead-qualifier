@@ -4,6 +4,8 @@ import asyncio
 import os
 import sys
 from collections.abc import AsyncIterator
+from typing import Any
+from uuid import UUID
 
 # Windows selector loop policy is required for psycopg async event loop support on Windows
 if sys.platform == "win32":
@@ -12,9 +14,12 @@ if sys.platform == "win32":
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection, sql
+from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.api.main import app
+from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.security import hash_api_key
+from lead_qualifier.core.tenant import TenantContext
 
 # Deterministic demo and attacker tenant identifiers
 TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
@@ -25,26 +30,55 @@ API_KEY_DEMO = "b2b_live_demo_acme_111111111111111111111111"
 API_KEY_INVASOR = "b2b_live_attacker_222222222222222222222222"
 
 
-async def set_test_tenant_context(
-    conn: AsyncConnection,
-    tenant_id: str,
-    schema_name: str,
-) -> None:
-    """Configure tenant session GUC and search_path safely using parameterized queries.
+class TestTenantUnitOfWork:
+    """Test helper supporting both `async with set_test_tenant_context(...)` and `await set_test_tenant_context(...)`."""
 
-    Args:
-        conn: Target database connection.
-        tenant_id: Tenant UUID string.
-        schema_name: Target schema name.
-    """
-    async with conn.cursor() as cur:
-        await cur.execute(
-            "SELECT set_config('app.current_tenant', %s, true)",
-            (tenant_id,),
+    def __init__(
+        self,
+        pool_or_conn: AsyncConnectionPool | AsyncConnection,
+        tenant_id: str | UUID,
+        schema_name: str,
+    ) -> None:
+        self.pool_or_conn = pool_or_conn
+        self.tenant_ctx = TenantContext(
+            tenant_id=UUID(str(tenant_id)),
+            schema_name=schema_name,
         )
-        await cur.execute(
-            sql.SQL("SET LOCAL search_path TO {}, public").format(sql.Identifier(schema_name))
-        )
+        self._cm = tenant_transaction(pool_or_conn, self.tenant_ctx)
+        self._yielded_conn: AsyncConnection | None = None
+
+    async def __aenter__(self) -> AsyncConnection:
+        self._yielded_conn = await self._cm.__aenter__()
+        return self._yielded_conn
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        return await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+
+    def __await__(self) -> Any:
+        # Backward-compatibility for direct calls awaiting tenant context setup
+        async def _apply() -> None:
+            if isinstance(self.pool_or_conn, AsyncConnection):
+                async with self.pool_or_conn.cursor() as cur:
+                    await cur.execute(
+                        "SELECT set_config('app.current_tenant', %s, true)",
+                        (str(self.tenant_ctx.tenant_id),),
+                    )
+                    await cur.execute(
+                        sql.SQL("SET LOCAL search_path TO {}, public").format(
+                            sql.Identifier(self.tenant_ctx.schema_name)
+                        )
+                    )
+
+        return _apply().__await__()
+
+
+def set_test_tenant_context(
+    conn: AsyncConnection | AsyncConnectionPool,
+    tenant_id: str | UUID,
+    schema_name: str,
+) -> TestTenantUnitOfWork:
+    """Configure tenant transaction context safely using the tenant_transaction unit of work."""
+    return TestTenantUnitOfWork(conn, tenant_id, schema_name)
 
 
 @pytest_asyncio.fixture
@@ -126,6 +160,19 @@ async def db_app(_setup_test_tenants: None) -> AsyncIterator[AsyncConnection]:
     conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn
+
+
+@pytest_asyncio.fixture
+async def db_pool(_setup_test_tenants: None) -> AsyncIterator[AsyncConnectionPool]:
+    """Yield an unprivileged application connection pool for integration testing."""
+    app_user = os.getenv("DB_USER", "app_user")
+    app_pwd = os.getenv("DB_PASSWORD", "secret")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
+    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
+    pool = AsyncConnectionPool(conninfo=conn_str, min_size=1, max_size=10, open=False)
+    await pool.open()
+    yield pool
+    await pool.close()
 
 
 @pytest_asyncio.fixture

@@ -1,5 +1,7 @@
-"""Multi-tenant security context re-exports."""
+"""Multi-tenant security context models and re-exports."""
 
-from lead_qualifier.core.security import get_tenant_connection
+from lead_qualifier.core.database import tenant_transaction
+from lead_qualifier.core.security import get_tenant_context
+from lead_qualifier.core.tenant_context import TenantContext
 
-__all__ = ["get_tenant_connection"]
+__all__ = ["TenantContext", "get_tenant_context", "tenant_transaction"]

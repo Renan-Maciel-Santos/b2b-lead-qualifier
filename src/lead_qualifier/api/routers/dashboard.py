@@ -6,10 +6,11 @@ from typing import Annotated, Any
 import jinja2
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from psycopg import AsyncConnection
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
-from lead_qualifier.core.security import get_tenant_connection
+from lead_qualifier.core.database import get_db_pool, tenant_transaction
+from lead_qualifier.core.tenant import TenantContext, get_tenant_context
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -23,17 +24,22 @@ jinja_env = jinja2.Environment(
 
 @router.get("/v1/leads")
 async def get_leads(
-    conn: Annotated[AsyncConnection, Depends(get_tenant_connection)],
+    pool: Annotated[AsyncConnectionPool, Depends(get_db_pool)],
+    tenant_ctx: Annotated[TenantContext, Depends(get_tenant_context)],
 ) -> dict[str, Any]:
     """Retrieve the most recent lead qualification scores for the authenticated tenant.
 
     Args:
-        conn: Injected database connection pre-configured with tenant RLS context.
+        pool: Injected shared application database pool.
+        tenant_ctx: Injected immutable tenant security context.
 
     Returns:
         dict: List of evaluated lead records and metadata.
     """
-    async with conn.cursor(row_factory=dict_row) as cur:
+    async with (
+        tenant_transaction(pool, tenant_ctx) as conn,
+        conn.cursor(row_factory=dict_row) as cur,
+    ):
         await cur.execute(
             """
             SELECT id, phone_number, final_score, is_qualified, audit_trail, created_at
