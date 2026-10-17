@@ -76,7 +76,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:secret@127.0.0.1:5432/b2b_lead_qualifier?sslmode=disable
         run: |
-          PGPASSWORD=secret psql -h 127.0.0.1 -U postgres -d b2b_lead_qualifier -f db/bootstrap/create_app_role.psql
+          PGPASSWORD=secret psql -h 127.0.0.1 -U postgres -d b2b_lead_qualifier -v app_password=secret -f db/bootstrap/create_app_role.psql
           dbmate --migrations-dir db/migrations up
           PGPASSWORD=secret psql -h 127.0.0.1 -U postgres -d b2b_lead_qualifier -f db/seeds/demo.sql
 
@@ -89,4 +89,4 @@ jobs:
           DB_PASSWORD: secret
           DB_ADMIN_USER: postgres
           DB_ADMIN_PASSWORD: secret
-        run: uv run pytest
+        run: uv run pytest -v
