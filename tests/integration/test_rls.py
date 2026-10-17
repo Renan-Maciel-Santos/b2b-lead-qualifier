@@ -4,7 +4,7 @@ import pytest
 from psycopg import AsyncConnection
 from psycopg.errors import Error as PsycopgError
 
-from tests.conftest import TENANT_DEMO, TENANT_INVASOR, set_test_tenant_context
+from tests.conftest import TENANT_INVASOR, TENANT_TEST, set_test_tenant_context
 
 pytestmark = pytest.mark.asyncio
 
@@ -19,18 +19,18 @@ async def test_rls_fail_closed_without_tenant(db_app: AsyncConnection) -> None:
 
 async def test_rls_isolates_tenant_data(db_app: AsyncConnection) -> None:
     """Verify tenant isolation: queries only return records owned by the active tenant session."""
-    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+    await set_test_tenant_context(db_app, TENANT_TEST, "tenant_test")
 
     async with db_app.cursor() as cur:
         await cur.execute("SELECT id, name FROM core.tenants")
         tenants = await cur.fetchall()
         assert len(tenants) == 1
-        assert str(tenants[0][0]) == TENANT_DEMO
+        assert str(tenants[0][0]) == TENANT_TEST
 
         await cur.execute("SELECT tenant_id FROM scoring_rule_sets")
         rule_sets = await cur.fetchall()
         assert len(rule_sets) >= 1
-        assert str(rule_sets[0][0]) == TENANT_DEMO
+        assert str(rule_sets[0][0]) == TENANT_TEST
 
 
 async def test_rls_prevents_cross_tenant_inserts(db_app: AsyncConnection) -> None:
@@ -41,5 +41,5 @@ async def test_rls_prevents_cross_tenant_inserts(db_app: AsyncConnection) -> Non
         with pytest.raises(PsycopgError):
             await cur.execute(
                 "INSERT INTO processed_messages (message_id, tenant_id) VALUES (%s, %s)",
-                ("msg_malicious_001", TENANT_DEMO),
+                ("msg_malicious_001", TENANT_TEST),
             )

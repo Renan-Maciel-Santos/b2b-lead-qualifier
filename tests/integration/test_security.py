@@ -14,9 +14,9 @@ from lead_qualifier.core.security import hash_api_key
 from lead_qualifier.core.tenant import TenantContext
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from tests.conftest import (
-    API_KEY_DEMO,
     API_KEY_INVASOR,
-    TENANT_DEMO,
+    API_KEY_TEST,
+    TENANT_TEST,
     set_test_tenant_context,
 )
 
@@ -61,17 +61,17 @@ async def test_revoked_api_key_returns_401(
     db_admin: AsyncConnection,
 ) -> None:
     """Verify that an API key with a non-null revoked_at timestamp is rejected with HTTP 401."""
-    demo_key_hash = hash_api_key(API_KEY_DEMO)
+    test_key_hash = hash_api_key(API_KEY_TEST)
 
-    # Revoke the demo key
+    # Revoke the test key
     async with db_admin.cursor() as cur:
         await cur.execute(
             "UPDATE core.api_keys SET revoked_at = now() WHERE key_hash = %s",
-            (demo_key_hash,),
+            (test_key_hash,),
         )
         await db_admin.commit()
 
-    headers = {"Authorization": f"Bearer {API_KEY_DEMO}"}
+    headers = {"Authorization": f"Bearer {API_KEY_TEST}"}
     response = await api_client.get("/v1/leads", headers=headers)
     assert response.status_code == 401
 
@@ -79,7 +79,7 @@ async def test_revoked_api_key_returns_401(
     async with db_admin.cursor() as cur:
         await cur.execute(
             "UPDATE core.api_keys SET revoked_at = NULL WHERE key_hash = %s",
-            (demo_key_hash,),
+            (test_key_hash,),
         )
         await db_admin.commit()
 
@@ -89,15 +89,15 @@ async def test_cross_tenant_isolation_via_api_key(
     db_admin: AsyncConnection,
 ) -> None:
     """Verify that an API key belonging to Tenant B cannot access Tenant A's lead data."""
-    # Seed a lead directly in Tenant A (Demo)
-    await set_test_tenant_context(db_admin, TENANT_DEMO, "tenant_demo")
+    # Seed a lead directly in Tenant A (Test)
+    await set_test_tenant_context(db_admin, TENANT_TEST, "tenant_test")
     async with db_admin.cursor() as cur:
         await cur.execute(
             """
             INSERT INTO scoring_results (phone_number, rule_set_id, final_score, is_qualified, audit_trail)
             VALUES (
                 '+5511988887777',
-                (SELECT id FROM tenant_demo.scoring_rule_sets WHERE is_active = true LIMIT 1),
+                (SELECT id FROM tenant_test.scoring_rule_sets WHERE is_active = true LIMIT 1),
                 100,
                 true,
                 '["Test qualification"]'::jsonb
@@ -107,7 +107,7 @@ async def test_cross_tenant_isolation_via_api_key(
         await db_admin.commit()
 
     # Request leads using Tenant A's key -> must see the lead
-    headers_a = {"Authorization": f"Bearer {API_KEY_DEMO}"}
+    headers_a = {"Authorization": f"Bearer {API_KEY_TEST}"}
     response_a = await api_client.get("/v1/leads", headers=headers_a)
     assert response_a.status_code == 200
     leads_a = response_a.json()["leads"]
@@ -162,7 +162,7 @@ async def test_app_user_denied_direct_select_on_core_api_keys(
     await db_app.rollback()
 
     # 2. Key resolution via the SECURITY DEFINER function must succeed for app_user
-    key_hash = hashlib.sha256(API_KEY_DEMO.encode("utf-8")).hexdigest()
+    key_hash = hashlib.sha256(API_KEY_TEST.encode("utf-8")).hexdigest()
     async with db_app.cursor() as cur:
         await cur.execute(
             "SELECT tenant_id, schema_name FROM core.resolve_tenant_by_api_key(%s)",
@@ -170,7 +170,7 @@ async def test_app_user_denied_direct_select_on_core_api_keys(
         )
         row = await cur.fetchone()
         assert row is not None
-        assert row[1] == "tenant_demo"
+        assert row[1] == "tenant_test"
 
 
 async def test_no_tenant_context_leakage_across_pool_checkouts(
@@ -183,7 +183,7 @@ async def test_no_tenant_context_leakage_across_pool_checkouts(
     pool outside of any unit of work and executes a query.
     RLS must evaluate to closed (zero rows returned), never leaking Tenant A data.
     """
-    tenant_a_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    tenant_a_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     app_user = os.getenv("DB_USER", "app_user")
@@ -209,9 +209,9 @@ async def test_no_tenant_context_leakage_across_pool_checkouts(
             pool_single.connection() as raw_conn,
             raw_conn.cursor() as cur,
         ):
-            # Query tenant_demo's table directly without tenant transaction
+            # Query tenant_test's table directly without tenant transaction
             await cur.execute(
-                "SELECT phone_number, current_state FROM tenant_demo.conversation_states WHERE phone_number = %s",
+                "SELECT phone_number, current_state FROM tenant_test.conversation_states WHERE phone_number = %s",
                 (phone,),
             )
             rows = await cur.fetchall()

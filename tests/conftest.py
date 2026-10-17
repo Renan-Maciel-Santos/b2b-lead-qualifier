@@ -21,13 +21,17 @@ from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.security import hash_api_key
 from lead_qualifier.core.tenant import TenantContext
 
-# Deterministic demo and attacker tenant identifiers
-TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
+# Deterministic test and attacker tenant identifiers (isolated from seed's tenant_demo)
+TENANT_TEST = "33333333-3333-3333-3333-333333333333"
 TENANT_INVASOR = "22222222-2222-2222-2222-222222222222"
 
 # Deterministic API keys for testing
-API_KEY_DEMO = "b2b_live_demo_acme_111111111111111111111111"
+API_KEY_TEST = "b2b_live_test_tenant_33333333333333333333"
 API_KEY_INVASOR = "b2b_live_attacker_222222222222222222222222"
+
+# Backward compatibility aliases
+TENANT_DEMO = TENANT_TEST
+API_KEY_DEMO = API_KEY_TEST
 
 
 class TestTenantUnitOfWork:
@@ -48,8 +52,9 @@ class TestTenantUnitOfWork:
         self._yielded_conn: AsyncConnection | None = None
 
     async def __aenter__(self) -> AsyncConnection:
-        self._yielded_conn = await self._cm.__aenter__()
-        return self._yielded_conn
+        conn = await self._cm.__aenter__()
+        self._yielded_conn = conn
+        return conn
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
         return await self._cm.__aexit__(exc_type, exc_val, exc_tb)
@@ -98,7 +103,7 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
     async with db_admin.cursor() as cur:
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
-            (TENANT_DEMO, "Acme Corp (Demo)", "tenant_demo"),
+            (TENANT_TEST, "Acme Corp (Test)", "tenant_test"),
         )
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
@@ -106,8 +111,8 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
         )
         await cur.execute(
             """
-            INSERT INTO tenant_demo.scoring_rule_sets (
-                tenant_id, version, rules, qualification_threshold, is_active
+            INSERT INTO tenant_test.scoring_rule_sets (
+                tenant_id, version, rules, required_slots, qualification_threshold, is_active
             ) VALUES (
                 %s, 1,
                 '[
@@ -118,25 +123,34 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
                     {"type": "exact_match", "field": "role", "value": "Diretor", "points": 40},
                     {"type": "exact_match", "field": "revenue", "value": "5 milhoes ao ano", "points": 50}
                 ]'::jsonb,
+                ARRAY['role', 'revenue']::text[],
                 50, true
-            ) ON CONFLICT (tenant_id, version) DO NOTHING
+            ) ON CONFLICT (tenant_id, version) DO UPDATE SET
+                rules = EXCLUDED.rules,
+                required_slots = EXCLUDED.required_slots,
+                qualification_threshold = EXCLUDED.qualification_threshold,
+                is_active = EXCLUDED.is_active
             """,
-            (TENANT_DEMO,),
+            (TENANT_TEST,),
         )
-        # Seed test API keys
+        # Seed test API keys deterministically
         await cur.execute(
             """
             INSERT INTO core.api_keys (tenant_id, key_hash, name)
             VALUES (%s, %s, %s)
-            ON CONFLICT (key_hash) DO NOTHING
+            ON CONFLICT (key_hash) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                revoked_at = NULL
             """,
-            (TENANT_DEMO, hash_api_key(API_KEY_DEMO), "Demo Tenant Test Key"),
+            (TENANT_TEST, hash_api_key(API_KEY_TEST), "Test Tenant API Key"),
         )
         await cur.execute(
             """
             INSERT INTO core.api_keys (tenant_id, key_hash, name)
             VALUES (%s, %s, %s)
-            ON CONFLICT (key_hash) DO NOTHING
+            ON CONFLICT (key_hash) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                revoked_at = NULL
             """,
             (TENANT_INVASOR, hash_api_key(API_KEY_INVASOR), "Attacker Tenant Test Key"),
         )
