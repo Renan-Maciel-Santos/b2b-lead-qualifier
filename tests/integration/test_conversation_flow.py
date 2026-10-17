@@ -1,6 +1,9 @@
 """Integration tests for multi-turn conversational qualification flow and atomic idempotency."""
 
+import asyncio
+import os
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -215,3 +218,74 @@ async def test_llm_call_does_not_hold_conversation_lock(
         ConversationState.AWAITING_ROLE,
         ConversationState.AWAITING_REVENUE,
     )
+
+
+async def test_connection_returned_to_pool_during_llm_call(
+    _setup_test_tenants: None,
+) -> None:
+    """Prove that database connection is returned to the pool during LLM extraction.
+
+    Uses a pool with max_size=1. While the fake LLM is blocked on an asyncio.Event,
+    a second unit of work attempts to acquire a connection from the same pool.
+    Because the connection was returned before calling LLM, the second unit of work
+    acquires the single pool connection immediately without timing out.
+    """
+    tenant_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    app_user = os.getenv("DB_USER", "app_user")
+    app_pwd = os.getenv("DB_PASSWORD", "secret")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
+    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
+
+    pool_single = AsyncConnectionPool(conninfo=conn_str, min_size=1, max_size=1, open=False)
+    await pool_single.open()
+
+    llm_thinking = asyncio.Event()
+    llm_can_proceed = asyncio.Event()
+
+    async def slow_extract_slots(*_args: Any, **_kwargs: Any) -> LeadSlots:
+        llm_thinking.set()
+        await llm_can_proceed.wait()
+        return LeadSlots(revenue="5 milhoes ao ano")
+
+    try:
+        mock_adapter = OpenAIAdapter(api_key="mock_key")
+        mock_adapter.extract_slots = AsyncMock(side_effect=slow_extract_slots)  # type: ignore[method-assign]
+        service = StateMachineService(
+            pool=pool_single, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter
+        )
+
+        turn_task = asyncio.create_task(
+            service.process_turn(
+                TurnRequest(
+                    message_id=f"msg_pool1_{uuid.uuid4()}",
+                    phone_number=phone,
+                    user_message="Faturamos 5 milhoes ao ano.",
+                )
+            )
+        )
+
+        # Wait until LLM is actively extracting slots
+        await asyncio.wait_for(llm_thinking.wait(), timeout=5.0)
+
+        # Attempt to acquire a connection via a second unit of work in the same pool with max_size=1
+        async def acquire_second_uow() -> bool:
+            async with (
+                tenant_transaction(pool_single, tenant_ctx) as conn,
+                conn.cursor() as cur,
+            ):
+                await cur.execute("SELECT 1")
+                res = await cur.fetchone()
+                return bool(res == (1,))
+
+        # If StateMachine held the connection during LLM, this timeout would fail
+        acquired = await asyncio.wait_for(acquire_second_uow(), timeout=2.0)
+        assert acquired is True
+
+        # Release LLM event and confirm turn finishes normally
+        llm_can_proceed.set()
+        response = await asyncio.wait_for(turn_task, timeout=5.0)
+        assert response is not None
+    finally:
+        await pool_single.close()
