@@ -3,13 +3,14 @@
 import hashlib
 import re
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException
-from psycopg import AsyncConnection, sql
+from fastapi import Header, HTTPException, Request
 from psycopg.errors import Error as PsycopgError
+from psycopg_pool import AsyncConnectionPool
 
-from lead_qualifier.core.database import get_db_connection
 from lead_qualifier.core.logger import logger
+from lead_qualifier.core.tenant_context import TenantContext
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -24,25 +25,26 @@ def hash_api_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.strip().encode("utf-8")).hexdigest()
 
 
-async def get_tenant_connection(
+async def get_tenant_context(
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
-    conn: Annotated[AsyncConnection, Depends(get_db_connection)] = None,  # type: ignore[assignment]
-) -> AsyncConnection:
-    """Authenticate inbound request via Bearer API key and set tenant security context.
+) -> TenantContext:
+    """Authenticate inbound request via Bearer API key and resolve tenant security context.
 
-    Resolves tenant identity strictly from the API key hash, sets the PostgreSQL
-    RLS session GUC (app.current_tenant), and scopes search_path to the dedicated schema.
+    Resolves tenant identity strictly from the API key hash via the SECURITY DEFINER
+    function core.resolve_tenant_by_api_key. Returns an immutable TenantContext
+    without holding or configuring any persistent database connection.
 
     Args:
+        request: Current HTTP request containing app.state.db_pool.
         authorization: Inbound HTTP Authorization header.
-        conn: Injected database connection from the application pool.
 
     Returns:
-        AsyncConnection: Initialized connection with tenant RLS context active.
+        TenantContext: Strongly-typed, immutable tenant identity and schema.
 
     Raises:
         HTTPException(401): If API key is missing, malformed, invalid, or revoked.
-        HTTPException(503): If a database error occurs during tenant context initialization.
+        HTTPException(503): If a database error occurs during tenant context resolution.
     """
     if not authorization:
         raise HTTPException(
@@ -60,8 +62,13 @@ async def get_tenant_connection(
     raw_key = parts[1]
     key_hash = hash_api_key(raw_key)
 
+    pool: AsyncConnectionPool = request.app.state.db_pool
     try:
-        async with conn.cursor() as cur:
+        # Borrow a connection briefly solely to resolve the tenant identity
+        async with (
+            pool.connection() as conn,
+            conn.cursor() as cur,
+        ):
             await cur.execute(
                 "SELECT tenant_id, schema_name FROM core.resolve_tenant_by_api_key(%s)",
                 (key_hash,),
@@ -80,17 +87,7 @@ async def get_tenant_connection(
                     detail="Invalid tenant schema identifier.",
                 )
 
-            # Enforce RLS session GUC locally for the request transaction
-            await cur.execute(
-                "SELECT set_config('app.current_tenant', %s, true)",
-                (str(tenant_id),),
-            )
-
-            # Safely switch search_path to tenant schema
-            set_search_path = sql.SQL("SET LOCAL search_path TO {}, public").format(
-                sql.Identifier(schema_name)
-            )
-            await cur.execute(set_search_path)
+            return TenantContext(tenant_id=UUID(str(tenant_id)), schema_name=schema_name)
 
     except HTTPException:
         raise
@@ -104,5 +101,3 @@ async def get_tenant_connection(
             status_code=503,
             detail="Service temporarily unavailable.",
         ) from err
-
-    return conn

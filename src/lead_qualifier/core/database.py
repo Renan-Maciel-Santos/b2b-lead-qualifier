@@ -1,16 +1,20 @@
-"""Database connection pooling and dependency injection.
+"""Database connection pooling, dependency injection, and transaction unit of work.
 
 This module provides utilities to instantiate the asynchronous connection pool
-during application lifespan and inject scoped connections into FastAPI endpoints.
+during application lifespan and inject scoped transactions and connection pools
+into FastAPI endpoints.
 """
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import cast
 
 from fastapi import Request
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, sql
 from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.core.settings import Settings
+from lead_qualifier.core.tenant_context import TenantContext
 
 
 def create_connection_pool(settings: Settings) -> AsyncConnectionPool:
@@ -30,6 +34,18 @@ def create_connection_pool(settings: Settings) -> AsyncConnectionPool:
     )
 
 
+def get_db_pool(request: Request) -> AsyncConnectionPool:
+    """FastAPI dependency yielding the shared connection pool from application state.
+
+    Args:
+        request: Current HTTP request containing app.state.db_pool.
+
+    Returns:
+        AsyncConnectionPool: The active application database pool.
+    """
+    return cast(AsyncConnectionPool, request.app.state.db_pool)
+
+
 async def get_db_connection(request: Request) -> AsyncIterator[AsyncConnection]:
     """FastAPI dependency yielding a connection from the application state pool.
 
@@ -42,3 +58,54 @@ async def get_db_connection(request: Request) -> AsyncIterator[AsyncConnection]:
     pool: AsyncConnectionPool = request.app.state.db_pool
     async with pool.connection() as conn:
         yield conn
+
+
+@asynccontextmanager
+async def tenant_transaction(
+    pool_or_conn: AsyncConnectionPool | AsyncConnection,
+    tenant_ctx: TenantContext,
+) -> AsyncIterator[AsyncConnection]:
+    """Execute operations inside an atomic transaction scoped strictly to a tenant.
+
+    Lifecycle:
+    1. Acquires a connection from pool (or uses the provided connection).
+    2. Opens a transaction block.
+    3. Executes set_config('app.current_tenant', ..., true) and SET LOCAL search_path.
+    4. Yields connection to caller.
+    5. Commits upon clean exit, rollbacks on exception.
+    6. Returns connection to pool.
+
+    Args:
+        pool_or_conn: Connection pool or direct connection.
+        tenant_ctx: Immutable tenant context (tenant_id and schema_name).
+
+    Yields:
+        AsyncConnection: Connection within an active, tenant-scoped transaction.
+    """
+    if isinstance(pool_or_conn, AsyncConnectionPool):
+        async with pool_or_conn.connection() as conn, conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT set_config('app.current_tenant', %s, true)",
+                    (str(tenant_ctx.tenant_id),),
+                )
+                await cur.execute(
+                    sql.SQL("SET LOCAL search_path TO {}, public").format(
+                        sql.Identifier(tenant_ctx.schema_name)
+                    )
+                )
+            yield conn
+    else:
+        conn = pool_or_conn
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT set_config('app.current_tenant', %s, true)",
+                    (str(tenant_ctx.tenant_id),),
+                )
+                await cur.execute(
+                    sql.SQL("SET LOCAL search_path TO {}, public").format(
+                        sql.Identifier(tenant_ctx.schema_name)
+                    )
+                )
+            yield conn
