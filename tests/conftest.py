@@ -10,11 +10,19 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection, sql
+
+from lead_qualifier.api.main import app
+from lead_qualifier.core.security import hash_api_key
 
 # Deterministic demo and attacker tenant identifiers
 TENANT_DEMO = "11111111-1111-1111-1111-111111111111"
 TENANT_INVASOR = "22222222-2222-2222-2222-222222222222"
+
+# Deterministic API keys for testing
+API_KEY_DEMO = "b2b_live_demo_acme_111111111111111111111111"
+API_KEY_INVASOR = "b2b_live_attacker_222222222222222222222222"
 
 
 async def set_test_tenant_context(
@@ -52,7 +60,7 @@ async def db_admin() -> AsyncIterator[AsyncConnection]:
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_test_tenants(db_admin: AsyncConnection) -> None:
-    """Ensure test tenants and baseline rule sets are provisioned idempotently before each test."""
+    """Ensure test tenants, baseline rule sets, and test API keys are provisioned before each test."""
     async with db_admin.cursor() as cur:
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
@@ -81,6 +89,23 @@ async def setup_test_tenants(db_admin: AsyncConnection) -> None:
             """,
             (TENANT_DEMO,),
         )
+        # Seed test API keys
+        await cur.execute(
+            """
+            INSERT INTO core.api_keys (tenant_id, key_hash, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key_hash) DO NOTHING
+            """,
+            (TENANT_DEMO, hash_api_key(API_KEY_DEMO), "Demo Tenant Test Key"),
+        )
+        await cur.execute(
+            """
+            INSERT INTO core.api_keys (tenant_id, key_hash, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key_hash) DO NOTHING
+            """,
+            (TENANT_INVASOR, hash_api_key(API_KEY_INVASOR), "Attacker Tenant Test Key"),
+        )
         await db_admin.commit()
 
 
@@ -93,3 +118,14 @@ async def db_app() -> AsyncIterator[AsyncConnection]:
     conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn
+
+
+@pytest_asyncio.fixture
+async def api_client() -> AsyncIterator[AsyncClient]:
+    """Yield an async HTTP test client with application lifespan active."""
+    transport = ASGITransport(app=app)
+    async with (
+        AsyncClient(transport=transport, base_url="http://test") as client,
+        app.router.lifespan_context(app),
+    ):
+        yield client
