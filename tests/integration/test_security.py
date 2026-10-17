@@ -1,10 +1,18 @@
 """Integration tests verifying API key authentication, cross-tenant isolation, and XSS prevention."""
 
+import os
+import uuid
+from uuid import UUID
+
 import pytest
 from httpx import AsyncClient
 from psycopg import AsyncConnection
+from psycopg_pool import AsyncConnectionPool
 
+from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.security import hash_api_key
+from lead_qualifier.core.tenant import TenantContext
+from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from tests.conftest import (
     API_KEY_DEMO,
     API_KEY_INVASOR,
@@ -163,3 +171,57 @@ async def test_app_user_denied_direct_select_on_core_api_keys(
         row = await cur.fetchone()
         assert row is not None
         assert row[1] == "tenant_demo"
+
+
+async def test_no_tenant_context_leakage_across_pool_checkouts(
+    _setup_test_tenants: None,
+) -> None:
+    """Prove that tenant context does not leak between pool checkouts (fail-closed RLS).
+
+    Uses a pool with max_size=1. First executes a unit of work for Tenant A that
+    persists a conversation state. Then, checks out the exact same connection from the
+    pool outside of any unit of work and executes a query.
+    RLS must evaluate to closed (zero rows returned), never leaking Tenant A data.
+    """
+    tenant_a_ctx = TenantContext(UUID(TENANT_DEMO), "tenant_demo")
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    app_user = os.getenv("DB_USER", "app_user")
+    app_pwd = os.getenv("DB_PASSWORD", "secret")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
+    conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
+
+    pool_single = AsyncConnectionPool(conninfo=conn_str, min_size=1, max_size=1, open=False)
+    await pool_single.open()
+
+    try:
+        # Step 1: Execute unit of work for Tenant A to write state
+        async with tenant_transaction(pool_single, tenant_a_ctx) as conn_a:
+            repo_a = ConversationRepository(conn_a)
+            await repo_a.save_conversation_state(
+                phone_number=phone,
+                current_state="QUALIFIED",
+                accumulated_slots={"role": "CEO", "revenue": "5M"},
+            )
+
+        # Step 2: Acquire the SAME connection from the pool outside of any unit of work
+        async with (
+            pool_single.connection() as raw_conn,
+            raw_conn.cursor() as cur,
+        ):
+            # Query tenant_demo's table directly without tenant transaction
+            await cur.execute(
+                "SELECT phone_number, current_state FROM tenant_demo.conversation_states WHERE phone_number = %s",
+                (phone,),
+            )
+            rows = await cur.fetchall()
+
+            # RLS must fail-closed: exactly zero rows returned, never Tenant A data
+            assert len(rows) == 0
+
+            # Verify that app.current_tenant GUC is empty or reset
+            await cur.execute("SELECT current_setting('app.current_tenant', true)")
+            guc_val = await cur.fetchone()
+            assert guc_val is None or guc_val[0] is None or guc_val[0] == ""
+    finally:
+        await pool_single.close()
