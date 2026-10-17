@@ -1,4 +1,4 @@
-"""Integration tests for conversation repository idempotency and append-only scoring results."""
+"""Integration tests for conversation repository idempotency, state persistence, and scoring results."""
 
 import uuid
 
@@ -11,18 +11,44 @@ from tests.conftest import TENANT_DEMO, set_test_tenant_context
 pytestmark = pytest.mark.asyncio
 
 
-async def test_repository_idempotency(db_app: AsyncConnection) -> None:
-    """Verify that processed message IDs are identified as duplicates on subsequent checks."""
+async def test_repository_atomic_idempotency(db_app: AsyncConnection) -> None:
+    """Verify race-free atomic idempotency using acquire_message_lock."""
     await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
 
     repo = ConversationRepository(db_app)
     msg_id = f"msg_{uuid.uuid4()}"
 
-    assert await repo.is_message_processed(msg_id) is False
+    # First acquisition succeeds (winner)
+    assert await repo.acquire_message_lock(msg_id) is True
 
-    await repo.mark_message_processed(msg_id)
+    # Duplicate acquisition fails atomically (loser)
+    assert await repo.acquire_message_lock(msg_id) is False
 
-    assert await repo.is_message_processed(msg_id) is True
+
+async def test_repository_conversation_state_lifecycle(db_app: AsyncConnection) -> None:
+    """Verify conversation state creation, row locking, and slot persistence."""
+    await set_test_tenant_context(db_app, TENANT_DEMO, "tenant_demo")
+
+    repo = ConversationRepository(db_app)
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+
+    # Initial state initialization
+    state, slots = await repo.get_or_create_conversation_state(phone)
+    assert state == "INITIAL"
+    assert slots == {}
+
+    # State transition and slot accumulation
+    accumulated = {"role": "CEO", "name": "Alice"}
+    await repo.save_conversation_state(
+        phone_number=phone,
+        current_state="AWAITING_REVENUE",
+        accumulated_slots=accumulated,
+    )
+
+    # Subsequent retrieval retains accumulated state
+    state2, slots2 = await repo.get_or_create_conversation_state(phone)
+    assert state2 == "AWAITING_REVENUE"
+    assert slots2 == accumulated
 
 
 async def test_repository_save_scoring_result(db_app: AsyncConnection) -> None:
@@ -35,7 +61,6 @@ async def test_repository_save_scoring_result(db_app: AsyncConnection) -> None:
     assert rule_set is not None
     rule_set_id = rule_set["id"]
 
-    # Generate valid E.164 phone number satisfying the database CHECK constraint
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
     score = 100
     qualified = True
