@@ -11,6 +11,9 @@ from uuid import UUID
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# Default to deterministic fake LLM provider during test runs
+os.environ.setdefault("LLM_PROVIDER", "fake")
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection, sql

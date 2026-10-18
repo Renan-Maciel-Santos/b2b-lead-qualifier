@@ -14,6 +14,7 @@ from lead_qualifier.core.database import create_connection_pool
 from lead_qualifier.core.exceptions import global_exception_handler
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.settings import Settings
+from lead_qualifier.integrations.llm.fake_adapter import FakeDeterministicLLMAdapter
 from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 
 if sys.platform == "win32":
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application startup and shutdown lifecycle.
 
     Initializes the database connection pool in app.state, validates connectivity,
-    initializes the LLM adapter, and cleanly releases resources upon shutdown.
+    initializes the configured LLM adapter, and cleanly releases resources upon shutdown.
     """
     settings = Settings()
     pool = create_connection_pool(settings)
@@ -34,9 +35,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.settings = settings
     app.state.db_pool = pool
-    app.state.llm_adapter = OpenAIAdapter(
-        api_key=settings.openai_api_key.get_secret_value(),
-    )
+
+    if settings.llm_provider == "openai":
+        if not settings.openai_api_key or not settings.openai_api_key.get_secret_value():
+            raise RuntimeError(
+                "OPENAI_API_KEY is required when LLM_PROVIDER is 'openai'. "
+                "Configure OPENAI_API_KEY in .env or set LLM_PROVIDER=fake for local demonstration."
+            )
+        app.state.llm_adapter = OpenAIAdapter(
+            api_key=settings.openai_api_key.get_secret_value(),
+            timeout=settings.openai_timeout_seconds,
+            max_retries=settings.openai_max_retries,
+        )
+    elif settings.llm_provider == "fake":
+        logger.warning(
+            "LLM_PROVIDER=fake is active. Using deterministic rule-based fake LLM adapter for local demonstration."
+        )
+        app.state.llm_adapter = FakeDeterministicLLMAdapter()
 
     yield
 

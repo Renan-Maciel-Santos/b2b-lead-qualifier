@@ -10,15 +10,26 @@ from lead_qualifier.core.settings import Settings
 class OpenAIAdapter:
     """Adapter wrapping OpenAI Structured Outputs API for deterministic entity parsing."""
 
-    def __init__(self, api_key: str | None = None, model: str = "gpt-4o-mini") -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "gpt-4o-mini",
+        timeout: float = 30.0,
+        max_retries: int = 2,
+    ) -> None:
         """Initialize the asynchronous OpenAI client.
 
         Args:
             api_key: Optional API key override. If not provided, loaded from Settings.
             model: OpenAI model identifier (defaults to gpt-4o-mini).
+            timeout: Request timeout in seconds.
+            max_retries: Maximum automatic retries for transient HTTP errors.
         """
-        key = api_key or Settings().openai_api_key.get_secret_value()
-        self.client = AsyncOpenAI(api_key=key)
+        settings = Settings()
+        key = api_key or (
+            settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
+        )
+        self.client = AsyncOpenAI(api_key=key, timeout=timeout, max_retries=max_retries)
         self.model = model
 
     async def extract_slots(self, conversation_history: str) -> LeadSlots:

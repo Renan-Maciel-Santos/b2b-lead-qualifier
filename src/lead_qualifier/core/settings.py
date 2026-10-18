@@ -1,5 +1,7 @@
 """Application settings managed via pydantic-settings v2."""
 
+from typing import Literal
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,7 +22,10 @@ class Settings(BaseSettings):
         db_admin_password: Superuser password.
         db_pool_min: Minimum open connections in the pool.
         db_pool_max: Maximum open connections in the pool.
+        llm_provider: Selected LLM extraction provider ("openai" or "fake").
         openai_api_key: OpenAI API secret key for LLM adapter.
+        openai_timeout_seconds: Request timeout in seconds for OpenAI API calls.
+        openai_max_retries: Maximum automatic retries for OpenAI API calls.
         domain: Domain name for reverse proxy TLS certificate.
         admin_database_url: Dedicated administrative database URL for CLI operations.
     """
@@ -48,7 +53,10 @@ class Settings(BaseSettings):
     db_pool_min: int = 1
     db_pool_max: int = 10
 
-    openai_api_key: SecretStr = SecretStr("sk-dummy-key-for-test")
+    llm_provider: Literal["openai", "fake"] = "openai"
+    openai_api_key: SecretStr | None = None
+    openai_timeout_seconds: float = 30.0
+    openai_max_retries: int = 2
 
     domain: str = ""
 
