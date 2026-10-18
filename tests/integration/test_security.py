@@ -138,10 +138,25 @@ async def test_dashboard_template_contains_no_innerhtml_with_lead_data(
 
 
 async def test_get_dashboard_returns_200(api_client: AsyncClient) -> None:
-    """Verify that GET /dashboard renders the dashboard template successfully with HTTP 200."""
+    """Verify that GET /dashboard renders the dashboard template publicly without lead data,
+
+    while data endpoint GET /v1/leads strictly requires authentication (HTTP 401).
+    """
+    # 1. GET /dashboard without Authorization header returns HTTP 200
     response = await api_client.get("/dashboard")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
+    html = response.text
+
+    # The rendered HTML page must be a public skeleton and contain zero lead records in the markup
+    assert "+55" not in html
+    assert "<tr><td>" not in html
+    assert '<tbody id="leadsTableBody">\n                    </tbody>' in html
+
+    # 2. GET /v1/leads without Authorization header returns HTTP 401
+    leads_response = await api_client.get("/v1/leads")
+    assert leads_response.status_code == 401
+    assert leads_response.json()["detail"] == "Invalid or missing API key."
 
 
 async def test_app_user_denied_direct_select_on_core_api_keys(
