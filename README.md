@@ -273,9 +273,20 @@ uv run pytest tests/unit/
 ```
 
 ### Run Integration Tests (Real PostgreSQL)
-Integration tests run against a running PostgreSQL 17 container, validating RLS boundaries, composite foreign keys, and API key authentication:
+Integration tests run against a running PostgreSQL 17 container, validating RLS boundaries, composite foreign keys, and API key authentication.
+
+The test suite reads configuration values from `.env` (created by copying `.env.example`). The following variables are required by integration tests:
+- `DB_ADMIN_PASSWORD`: Superuser password required by test fixtures to provision and reset isolated tenant schemas.
+- `ADMIN_DATABASE_URL`: Administrative database connection string used by CLI provisioning tests (when applicable).
+- `LLM_PROVIDER=fake`: Ensures offline, deterministic test execution without external API dependencies (note: `tests/conftest.py` automatically defaults `LLM_PROVIDER` to `fake` if not explicitly set).
+
+To run integration tests locally, ensure your PostgreSQL container is running and export the administrative credentials matching your `.env` (illustrated below using the default value from `.env.example`):
 ```bash
-uv run pytest tests/integration/
+# Linux / macOS:
+DB_ADMIN_PASSWORD="change-this-admin-password" uv run pytest tests/integration/
+
+# Windows (PowerShell):
+$env:DB_ADMIN_PASSWORD="change-this-admin-password"; uv run pytest tests/integration/
 ```
 
 ### Run Evaluation Harness
