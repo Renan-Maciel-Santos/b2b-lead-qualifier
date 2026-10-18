@@ -69,7 +69,7 @@ class ScoringService:
             if res.points != 0:
                 total_score += res.points
                 audit_trail.append(res.reason)
-                logger.info(f"Scoring rule applied: {res.reason}")
+                logger.info("Scoring rule applied: %s", res.reason)
 
         is_qualified = not is_knocked_out and (total_score >= self.qualification_threshold)
 

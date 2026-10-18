@@ -55,10 +55,10 @@ class OpenAIAdapter:
             if extracted_data is None:
                 return LeadSlots()
 
-            logger.info(f"Slots extracted successfully: {extracted_data.model_dump()}")
+            logger.info("Slots extracted successfully: %s", extracted_data.model_dump())
             return extracted_data
 
         except OpenAIError as e:
             # Fall back gracefully to empty slots to avoid crashing the state machine on external API outage
-            logger.error(f"Critical error during OpenAI slot extraction: {e!s}", exc_info=True)
+            logger.error("Critical error during OpenAI slot extraction: %s", e, exc_info=True)
             return LeadSlots()
