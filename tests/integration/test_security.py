@@ -268,3 +268,79 @@ async def test_scope_enforcement_leads_requires_leads_read(
     response = await api_client.get("/v1/leads", headers=headers)
     assert response.status_code == 403
     assert response.json()["detail"] == "Forbidden"
+
+
+async def test_cli_provisioning_with_admin_url_creates_valid_key_and_works_in_api(
+    api_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that generate_api_key creates a valid key using ADMIN_DATABASE_URL that succeeds in API calls."""
+    from lead_qualifier.cli import generate_api_key
+
+    admin_user = os.getenv("DB_ADMIN_USER", "postgres")
+    admin_pwd = os.getenv("DB_ADMIN_PASSWORD", "postgres")
+    db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
+    admin_conn_str = f"postgresql://{admin_user}:{admin_pwd}@127.0.0.1:5432/{db_name}"
+
+    monkeypatch.setenv("ADMIN_DATABASE_URL", admin_conn_str)
+
+    raw_key = generate_api_key(
+        tenant_id=TENANT_TEST,
+        name="Integration CLI Key",
+        scopes=["webhook:write", "leads:read"],
+    )
+    assert raw_key.startswith("b2b_live_")
+
+    auth_headers = {"Authorization": f"Bearer {raw_key}"}
+
+    # Verify leads:read scope allows access to /v1/leads
+    leads_res = await api_client.get("/v1/leads", headers=auth_headers)
+    assert leads_res.status_code == 200
+
+    # Verify webhook:write scope allows access to /v1/conversations/turns
+    turn_payload = {
+        "message_id": f"cli_turn_{uuid.uuid4()}",
+        "phone_number": "+5511999990088",
+        "user_message": "Ola",
+    }
+    turn_res = await api_client.post(
+        "/v1/conversations/turns",
+        json=turn_payload,
+        headers=auth_headers,
+    )
+    assert turn_res.status_code == 200
+
+
+async def test_cli_provisioning_without_admin_url_fails_with_explicit_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify that CLI create-key exits with code 1 and descriptive error when ADMIN_DATABASE_URL is absent."""
+    from unittest.mock import MagicMock, patch
+
+    from lead_qualifier.cli import main
+
+    test_args = [
+        "b2b-lead-qualifier",
+        "create-key",
+        "--tenant",
+        TENANT_TEST,
+        "--name",
+        "Failed Key",
+        "--scope",
+        "leads:read",
+    ]
+
+    mock_settings = MagicMock()
+    mock_settings.admin_database_url = None
+
+    with (
+        patch("sys.argv", test_args),
+        patch("lead_qualifier.cli.Settings", return_value=mock_settings),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Emissão de API keys é uma operação administrativa restrita" in captured.err
+    assert "ADMIN_DATABASE_URL" in captured.err
