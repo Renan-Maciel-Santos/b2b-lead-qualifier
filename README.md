@@ -183,7 +183,10 @@ Content-Type: application/json
 ```
 
 #### Idempotency & Message Lifecycle
-Duplicate webhook retries with the same `message_id` are tracked atomically in the tenant's `processed_messages` table with lifecycle statuses: `processing`, `done`, and `failed`. If a message is already `done` or currently `processing`, the system returns `current_state: DUPLICATE_IGNORED` without re-running LLM inference or scoring. If a previous turn attempt crashed or timed out, stuck messages in `processing` status are atomically reclaimed for retry after `idempotency_timeout` (default 60 seconds).
+Duplicate webhook retries with the same `message_id` are tracked atomically in the tenant's `processed_messages` table across three distinct statuses:
+- **`done`:** Successfully completed turns. Subsequent deliveries with the same `message_id` return `current_state: DUPLICATE_IGNORED` immediately, without re-executing LLM inference or scoring.
+- **`processing`:** Active turns. Concurrent duplicate deliveries while a turn is in flight are ignored. If a worker process dies unexpectedly, messages stuck in `processing` are atomically reclaimed for retry once `idempotency_timeout` has elapsed (default 60 seconds).
+- **`failed`:** Turns that encountered an upstream exception (such as an LLM provider outage causing a 503). On the next delivery of the same `message_id` (e.g. from a webhook retry), the message lock is immediately reclaimed (without waiting for the timeout window) and the turn is fully reprocessed.
 
 ---
 
@@ -237,18 +240,15 @@ The CLI outputs the plain-text key (e.g. `b2b_live_...`). Store it securely; the
 
 ### 5. Start the Application
 
-**Standard / Cross-Platform CLI:**
+**Standard CLI (Windows, Linux, macOS):**
 ```bash
 uv run b2b-lead-qualifier run
 ```
+*Note for Windows users:* The `run` CLI entrypoint automatically configures the `WindowsSelectorEventLoopPolicy` required by `psycopg` async mode. On Windows, launch the application via `uv run b2b-lead-qualifier run` or Docker.
 
-**Direct Uvicorn Command:**
+**Direct Uvicorn Command (Linux / macOS only):**
 ```bash
-# Linux / macOS:
 uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000
-
-# Windows (requires --loop none so uvicorn respects WindowsSelectorEventLoopPolicy for async psycopg):
-uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000 --loop none
 ```
 
 - **Interactive API Docs (Swagger UI):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
