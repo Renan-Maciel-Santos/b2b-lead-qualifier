@@ -204,7 +204,11 @@ Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
-Ensure database credentials, `ADMIN_DATABASE_URL` (used exclusively for key provisioning), and your `OPENAI_API_KEY` are populated in `.env`.
+Ensure database credentials and `ADMIN_DATABASE_URL` (used exclusively for key provisioning) are populated in `.env`.
+
+**LLM Provider Options:**
+- **OpenAI (Default):** Requires `OPENAI_API_KEY=sk-...`. If `LLM_PROVIDER=openai` and the API key is missing or unset, the application fails fast upon startup with an explicit configuration error.
+- **Offline Demonstration Mode (`LLM_PROVIDER=fake`):** Set `LLM_PROVIDER=fake` in `.env` to run full conversational qualification turns completely offline using a deterministic, rule-based keyword extractor without OpenAI API costs.
 
 ### 3. Start Database & Run Migrations
 ```bash
@@ -232,13 +236,31 @@ uv run b2b-lead-qualifier create-key \
 The CLI outputs the plain-text key (e.g. `b2b_live_...`). Store it securely; the database retains only the SHA-256 hash.
 
 ### 5. Start the Application
+
+**Standard / Cross-Platform CLI:**
 ```bash
+uv run b2b-lead-qualifier run
+```
+
+**Direct Uvicorn Command:**
+```bash
+# Linux / macOS:
 uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Windows (requires --loop none so uvicorn respects WindowsSelectorEventLoopPolicy for async psycopg):
+uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000 --loop none
 ```
 
 - **Interactive API Docs (Swagger UI):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 - **Inspection Dashboard:** [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
-- **Healthcheck:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- **Healthcheck & Readiness:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+### Alternative: Run Entire Stack via Docker Compose
+To run PostgreSQL 17, migrations, and the FastAPI application in isolated containers with zero local Python/PostgreSQL setup:
+```bash
+docker compose up --build -d
+```
+All services start with verified health checks and automated migrations on any operating system.
 
 ---
 
