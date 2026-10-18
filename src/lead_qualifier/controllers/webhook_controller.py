@@ -1,40 +1,28 @@
 """Webhook orchestration controller.
 
-Connects incoming HTTP webhook payloads to the conversational state machine
-and manages transaction-scoped unit of work boundaries.
+Connects incoming HTTP webhook payloads to the conversational state machine.
 """
 
-from psycopg import AsyncConnection
-from psycopg_pool import AsyncConnectionPool
-
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-from lead_qualifier.core.tenant import TenantContext
 from lead_qualifier.services.state_machine import StateMachineService
 
 
 class WebhookController:
-    """Controller coordinating conversation turn processing and unit of work boundaries."""
+    """Controller coordinating conversation turn processing with injected StateMachineService."""
 
-    def __init__(
-        self,
-        pool: AsyncConnectionPool | AsyncConnection,
-        tenant_ctx: TenantContext,
-    ) -> None:
-        """Initialize controller with database pool and immutable tenant context.
+    def __init__(self, service: StateMachineService) -> None:
+        """Initialize controller with pre-configured StateMachineService.
 
         Args:
-            pool: Database pool or connection used to spawn scoped transactions.
-            tenant_ctx: Verified immutable tenant context.
+            service: Injected state machine service instance.
         """
-        self.pool = pool
-        self.tenant_ctx = tenant_ctx
-        self.service = StateMachineService(pool=pool, tenant_ctx=tenant_ctx)
+        self.service = service
 
     async def handle_turn(self, request: TurnRequest) -> TurnResponse:
         """Handle a single conversational turn from the messaging transport.
 
-        Delegates execution to StateMachineService, which manages short, dedicated
-        transaction boundaries around idempotency registration and state updates.
+        Delegates execution to StateMachineService, which coordinates LLM extraction,
+        deterministic scoring, and unit of work persistence.
 
         Args:
             request: Inbound turn payload containing message ID and user text.

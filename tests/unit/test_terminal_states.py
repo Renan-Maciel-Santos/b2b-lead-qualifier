@@ -1,13 +1,12 @@
 """Unit tests validating terminal conversation states (QUALIFIED, NOT_QUALIFIED, DISQUALIFIED)."""
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.messages import CONVERSATION_FINISHED_REPLY
 from lead_qualifier.core.schemas.conversation import TurnRequest
 from lead_qualifier.services.state_machine import StateMachineService
+from tests.fakes import FakeConversationRepository, FakeLLMAdapter, make_fake_uow_factory
 
 pytestmark = pytest.mark.asyncio
 
@@ -24,24 +23,16 @@ async def test_lead_in_terminal_state_does_not_invoke_llm_or_scoring(
     terminal_state: ConversationState,
 ) -> None:
     """Verify that inbound messages for a lead in a terminal state skip LLM and scoring completely."""
-    mock_conn = MagicMock()
-    mock_conn.commit = AsyncMock()
-
-    mock_repo = MagicMock()
-    mock_repo.conn = mock_conn
-    mock_repo.acquire_message_lock = AsyncMock(return_value=True)
-    mock_repo.get_conversation_state_read_only = AsyncMock(
-        return_value=(terminal_state.value, {"role": "CEO"})
+    repo = FakeConversationRepository(
+        states={"+5511999997777": (terminal_state.value, {"role": "CEO"})},
     )
-    mock_repo.get_or_create_conversation_state = AsyncMock()
-    mock_repo.save_scoring_result = AsyncMock()
-    mock_repo.save_conversation_state = AsyncMock()
-    mock_repo.mark_message_done = AsyncMock()
+    llm = FakeLLMAdapter()
 
-    mock_llm = MagicMock()
-    mock_llm.extract_slots = AsyncMock()
-
-    service = StateMachineService(repo=mock_repo, llm_adapter=mock_llm)
+    service = StateMachineService(
+        uow_factory=make_fake_uow_factory(repo),
+        llm_adapter=llm,
+        idempotency_timeout=60,
+    )
 
     request = TurnRequest(
         message_id="msg_post_qualification_999",
@@ -57,11 +48,8 @@ async def test_lead_in_terminal_state_does_not_invoke_llm_or_scoring(
     assert response.is_finished is True
 
     # Critical assertions: zero LLM extraction and zero new scoring result
-    mock_llm.extract_slots.assert_not_called()
-    mock_repo.save_scoring_result.assert_not_called()
-    mock_repo.save_conversation_state.assert_not_called()
-    mock_repo.get_or_create_conversation_state.assert_not_called()
+    assert llm.call_count == 0
+    assert len(repo.scoring_results) == 0
 
-    # Message must be marked done and committed
-    mock_repo.mark_message_done.assert_awaited_once_with("msg_post_qualification_999")
-    assert mock_conn.commit.await_count >= 1
+    # Message must be marked done
+    assert repo.messages["msg_post_qualification_999"] == "done"

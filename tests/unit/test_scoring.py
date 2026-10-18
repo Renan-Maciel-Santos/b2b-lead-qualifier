@@ -1,7 +1,6 @@
 """Comprehensive unit tests for lead scoring strategies and scoring service (90%+ coverage target)."""
 
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -9,6 +8,7 @@ from pydantic import ValidationError
 from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.exceptions import ActiveRuleSetNotFoundError
 from lead_qualifier.core.schemas.conversation import TurnRequest
+from lead_qualifier.core.schemas.slots import LeadSlots
 from lead_qualifier.core.scoring.strategy import (
     ExactMatchStrategy,
     KnockoutStrategy,
@@ -18,6 +18,7 @@ from lead_qualifier.core.scoring.strategy import (
 )
 from lead_qualifier.services.scoring_service import ScoringResult, ScoringService
 from lead_qualifier.services.state_machine import StateMachineService
+from tests.fakes import FakeConversationRepository, FakeLLMAdapter, make_fake_uow_factory
 
 
 def test_strategy_result_defaults() -> None:
@@ -206,16 +207,14 @@ def test_build_strategies_rejects_missing_mandatory_fields() -> None:
 @pytest.mark.asyncio
 async def test_state_machine_raises_when_no_active_rule_set() -> None:
     """Verify that StateMachineService raises ActiveRuleSetNotFoundError when DB has no active rules."""
-    mock_repo = AsyncMock()
-    mock_repo.acquire_message_lock.return_value = True
-    mock_repo.get_conversation_state_read_only.return_value = ("INITIAL", {})
-    mock_repo.get_or_create_conversation_state.return_value = ("INITIAL", {})
-    mock_repo.get_active_scoring_rule_set.return_value = None
+    repo = FakeConversationRepository(active_rule_set=None)
+    llm = FakeLLMAdapter(extracted_slots=LeadSlots(role="CEO"))
 
-    mock_llm = AsyncMock()
-    mock_llm.extract_slots.return_value = AsyncMock(model_dump=lambda **_: {"role": "CEO"})
-
-    service = StateMachineService(repo=mock_repo, llm_adapter=mock_llm)
+    service = StateMachineService(
+        uow_factory=make_fake_uow_factory(repo),
+        llm_adapter=llm,
+        idempotency_timeout=60,
+    )
 
     request = TurnRequest(
         message_id="msg_test_no_rules",
@@ -267,41 +266,42 @@ def test_rule_set_rejects_invalid_required_slot_fields_or_duplicates() -> None:
 @pytest.mark.asyncio
 async def test_state_machine_question_order_respects_required_slots_list() -> None:
     """Verify that the state machine prompts for missing slots strictly in the declared order."""
-    scoring_service = ScoringService(
-        strategies=[
-            ExactMatchStrategy(field="role", target_value="CEO", points=50),
-            ExactMatchStrategy(field="revenue", target_value="5m", points=50),
-        ],
-        qualification_threshold=50,
-    )
+    rules: list[dict[str, Any]] = [
+        {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+        {"type": "exact_match", "field": "revenue", "value": "5m", "points": 50},
+    ]
 
-    mock_llm = AsyncMock()
-    mock_llm.extract_slots.return_value = AsyncMock(model_dump=lambda **_: {})
-
-    mock_repo = AsyncMock()
-    mock_repo.acquire_message_lock.return_value = True
-    mock_repo.get_conversation_state_read_only.return_value = ("INITIAL", {})
-    mock_repo.get_or_create_conversation_state.return_value = ("INITIAL", {})
-    mock_repo.save_conversation_state.return_value = None
-    mock_repo.mark_message_done.return_value = None
+    llm = FakeLLMAdapter(extracted_slots=LeadSlots())
 
     # Order 1: revenue declared before role -> prompts for revenue first
+    rule_set_rev_first = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "rules": rules,
+        "required_slots": ["revenue", "role"],
+        "qualification_threshold": 50,
+    }
+    repo_rev_first = FakeConversationRepository(active_rule_set=rule_set_rev_first)
     service_rev_first = StateMachineService(
-        repo=mock_repo,
-        llm_adapter=mock_llm,
-        scoring_service=scoring_service,
-        required_slots=["revenue", "role"],
+        uow_factory=make_fake_uow_factory(repo_rev_first),
+        llm_adapter=llm,
+        idempotency_timeout=60,
     )
     req1 = TurnRequest(message_id="msg_order_1", phone_number="+5511999991111", user_message="Ola")
     res1 = await service_rev_first.process_turn(req1)
     assert res1.current_state == ConversationState.AWAITING_REVENUE
 
     # Order 2: role declared before revenue -> prompts for role first
+    rule_set_role_first = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "rules": rules,
+        "required_slots": ["role", "revenue"],
+        "qualification_threshold": 50,
+    }
+    repo_role_first = FakeConversationRepository(active_rule_set=rule_set_role_first)
     service_role_first = StateMachineService(
-        repo=mock_repo,
-        llm_adapter=mock_llm,
-        scoring_service=scoring_service,
-        required_slots=["role", "revenue"],
+        uow_factory=make_fake_uow_factory(repo_role_first),
+        llm_adapter=llm,
+        idempotency_timeout=60,
     )
     req2 = TurnRequest(message_id="msg_order_2", phone_number="+5511999992222", user_message="Ola")
     res2 = await service_role_first.process_turn(req2)

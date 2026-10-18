@@ -9,9 +9,9 @@ from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
-from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
+from lead_qualifier.api.dependencies import create_tenant_uow_factory
 from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.messages import (
@@ -27,7 +27,6 @@ from lead_qualifier.services.state_machine import StateMachineService
 from tests.conftest import (
     API_KEY_TEST,
     TENANT_TEST,
-    set_test_tenant_context,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -45,7 +44,11 @@ async def test_multi_turn_conversation_accumulates_slots_and_qualifies(
 
     # Turn 1: Lead provides role only
     mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="CEO"))  # type: ignore[method-assign]
-    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+    service = StateMachineService(
+        uow_factory=create_tenant_uow_factory(db_pool, tenant_ctx),
+        llm_adapter=mock_adapter,
+        idempotency_timeout=60,
+    )
 
     turn1_request = TurnRequest(
         message_id=f"msg_turn1_{uuid.uuid4()}",
@@ -99,7 +102,11 @@ async def test_duplicate_message_id_atomic_idempotency_via_service(
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
     mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="Diretor"))  # type: ignore[method-assign]
-    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+    service = StateMachineService(
+        uow_factory=create_tenant_uow_factory(db_pool, tenant_ctx),
+        llm_adapter=mock_adapter,
+        idempotency_timeout=60,
+    )
 
     request = TurnRequest(
         message_id=duplicate_message_id,
@@ -169,7 +176,11 @@ async def test_llm_call_does_not_hold_conversation_lock(
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
     mock_adapter.extract_slots = AsyncMock(side_effect=slow_extract_slots)  # type: ignore[method-assign]
-    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+    service = StateMachineService(
+        uow_factory=create_tenant_uow_factory(db_pool, tenant_ctx),
+        llm_adapter=mock_adapter,
+        idempotency_timeout=60,
+    )
 
     turn_task = asyncio.create_task(
         service.process_turn(
@@ -184,16 +195,17 @@ async def test_llm_call_does_not_hold_conversation_lock(
     # Wait until LLM is actively extracting slots
     await asyncio.wait_for(llm_thinking.wait(), timeout=5.0)
 
-    # Open a SECOND concurrent database connection to test row lock availability
+    # Open a SECOND concurrent database pool to test row lock availability
     app_user = os.getenv("DB_USER", "app_user")
     app_pwd = os.getenv("DB_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
     conn_str = f"postgresql://{app_user}:{app_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
 
-    conn2 = await AsyncConnection.connect(conn_str)
+    pool2 = AsyncConnectionPool(conninfo=conn_str, min_size=1, max_size=1, open=False)
+    await pool2.open()
     try:
         async with (
-            set_test_tenant_context(conn2, TENANT_TEST, "tenant_test") as scoped_conn,
+            tenant_transaction(pool2, tenant_ctx) as scoped_conn,
             scoped_conn.cursor() as cur,
         ):
             # If StateMachine held an active lock during LLM execution, NOWAIT would raise LockNotAvailable
@@ -204,7 +216,7 @@ async def test_llm_call_does_not_hold_conversation_lock(
             row = await cur.fetchone()
             assert row is not None
     finally:
-        await conn2.close()
+        await pool2.close()
 
     # Release LLM event and confirm turn finishes normally
     llm_can_proceed.set()
@@ -250,7 +262,9 @@ async def test_connection_returned_to_pool_during_llm_call(
         mock_adapter = OpenAIAdapter(api_key="mock_key")
         mock_adapter.extract_slots = AsyncMock(side_effect=slow_extract_slots)  # type: ignore[method-assign]
         service = StateMachineService(
-            pool=pool_single, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter
+            uow_factory=create_tenant_uow_factory(pool_single, tenant_ctx),
+            llm_adapter=mock_adapter,
+            idempotency_timeout=60,
         )
 
         turn_task = asyncio.create_task(
@@ -302,7 +316,11 @@ async def test_ceo_knockout_on_revenue_disqualifies_immediately(
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
-    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+    service = StateMachineService(
+        uow_factory=create_tenant_uow_factory(db_pool, tenant_ctx),
+        llm_adapter=mock_adapter,
+        idempotency_timeout=60,
+    )
 
     # Turn 1: Lead is CEO -> requires revenue before qualification decision
     mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="CEO"))  # type: ignore[method-assign]
@@ -337,7 +355,11 @@ async def test_first_turn_knockout_terminates_immediately(
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
     mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="estagiario"))  # type: ignore[method-assign]
-    service = StateMachineService(pool=db_pool, tenant_ctx=tenant_ctx, llm_adapter=mock_adapter)
+    service = StateMachineService(
+        uow_factory=create_tenant_uow_factory(db_pool, tenant_ctx),
+        llm_adapter=mock_adapter,
+        idempotency_timeout=60,
+    )
 
     response = await service.process_turn(
         TurnRequest(
