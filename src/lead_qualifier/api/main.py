@@ -11,7 +11,11 @@ from lead_qualifier.api.health import router as health_router
 from lead_qualifier.api.routers.conversation import router as conversation_router
 from lead_qualifier.api.routers.dashboard import router as dashboard_router
 from lead_qualifier.core.database import create_connection_pool
-from lead_qualifier.core.exceptions import global_exception_handler
+from lead_qualifier.core.exceptions import (
+    LLMExtractionError,
+    global_exception_handler,
+    llm_extraction_exception_handler,
+)
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.settings import Settings
 from lead_qualifier.integrations.llm.fake_adapter import FakeDeterministicLLMAdapter
@@ -66,6 +70,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_exception_handler(LLMExtractionError, llm_extraction_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, global_exception_handler)
 
 app.include_router(health_router)

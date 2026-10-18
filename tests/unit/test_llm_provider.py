@@ -86,3 +86,21 @@ async def test_fake_deterministic_llm_adapter_extracts_known_slots() -> None:
     # High revenue tier
     slots_above = await adapter.extract_slots("Faturamento acima de 10 milhões.")
     assert slots_above.revenue_tier == RevenueTier.ABOVE_10M
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_propagates_llm_extraction_error_on_openai_error() -> None:
+    """Verify that OpenAIAdapter catches OpenAIError and raises LLMExtractionError preserving cause."""
+    from openai import OpenAIError
+
+    from lead_qualifier.core.exceptions import LLMExtractionError
+    from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
+
+    adapter = OpenAIAdapter(api_key="dummy_key")
+    openai_error = OpenAIError("Connection refused")
+    adapter.client.beta.chat.completions.parse = AsyncMock(side_effect=openai_error)  # type: ignore[method-assign]
+
+    with pytest.raises(LLMExtractionError) as exc_info:
+        await adapter.extract_slots("Olá, sou CEO")
+
+    assert exc_info.value.__cause__ is openai_error
