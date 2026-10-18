@@ -14,7 +14,6 @@ router = APIRouter(tags=["Conversations"])
 
 
 @router.post("/v1/conversations/turns", response_model=TurnResponse)
-@router.post("/v1/conversa/turno", response_model=TurnResponse, include_in_schema=False)
 async def conversation_turn(
     request: TurnRequest,
     controller: Annotated[WebhookController, Depends(get_webhook_controller)],
@@ -30,5 +29,5 @@ async def conversation_turn(
     Returns:
         TurnResponse: Formatted reply message, current conversation state, and completion flag.
     """
-    logger.info(f"Webhook received for phone={mask_phone_number(request.phone_number)}")
+    logger.info("Webhook received for phone=%s", mask_phone_number(request.phone_number))
     return await controller.handle_turn(request)

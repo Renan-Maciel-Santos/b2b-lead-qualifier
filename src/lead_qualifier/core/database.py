@@ -46,20 +46,6 @@ def get_db_pool(request: Request) -> AsyncConnectionPool:
     return cast(AsyncConnectionPool, request.app.state.db_pool)
 
 
-async def get_db_connection(request: Request) -> AsyncIterator[AsyncConnection]:
-    """FastAPI dependency yielding a connection from the application state pool.
-
-    Args:
-        request: Current HTTP request containing the initialized app.state.db_pool.
-
-    Yields:
-        AsyncConnection: Checked out connection from the pool.
-    """
-    pool: AsyncConnectionPool = request.app.state.db_pool
-    async with pool.connection() as conn:
-        yield conn
-
-
 @asynccontextmanager
 async def tenant_transaction(
     pool: AsyncConnectionPool,

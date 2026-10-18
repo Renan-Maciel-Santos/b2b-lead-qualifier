@@ -176,10 +176,6 @@ class StateMachineService:
                 reasons = score_result.reasons
 
                 def _is_slot_filled(slot_name: str, data: dict[str, Any]) -> bool:
-                    if slot_name in ("revenue", "revenue_tier"):
-                        return (
-                            data.get("revenue_tier") is not None or data.get("revenue") is not None
-                        )
                     val = data.get(slot_name)
                     return val is not None and val != ""
 
@@ -229,7 +225,7 @@ class StateMachineService:
                 # Branch 3: Missing required slot(s) -> ask next missing slot in configured order
                 else:
                     next_slot = missing_slots[0]
-                    if next_slot in ("revenue", "revenue_tier"):
+                    if next_slot == "revenue":
                         new_state = ConversationState.AWAITING_REVENUE
                         reply = ASK_REVENUE_REPLY
                     elif next_slot == "role":
@@ -283,4 +279,4 @@ class StateMachineService:
                     request.message_id,
                     mark_err,
                 )
-            raise exc
+            raise

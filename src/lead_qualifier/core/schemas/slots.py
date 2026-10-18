@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from lead_qualifier.core.enums import CompanySize, RevenueTier
+from lead_qualifier.core.enums import CompanySize
 
 
 class LeadSlots(BaseModel):
@@ -13,13 +13,9 @@ class LeadSlots(BaseModel):
         default=None,
         description="Job title or decision-making role (e.g. CEO, Diretor, Gerente, Estudante).",
     )
-    revenue_tier: RevenueTier | None = Field(
-        default=None,
-        description="Normalized company annual revenue bracket.",
-    )
     revenue: str | None = Field(
         default=None,
-        description="Optional raw revenue string for backwards compatibility.",
+        description="Company annual revenue or billing information.",
     )
     company_size: CompanySize | None = Field(
         default=None,
