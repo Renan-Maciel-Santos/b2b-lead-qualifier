@@ -1,7 +1,5 @@
 """FastAPI application entrypoint and lifespan management."""
 
-import asyncio
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -20,9 +18,6 @@ from lead_qualifier.core.logger import logger
 from lead_qualifier.core.settings import Settings
 from lead_qualifier.integrations.llm.fake_adapter import FakeDeterministicLLMAdapter
 from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
-
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @asynccontextmanager
