@@ -1,7 +1,7 @@
 # B2B Lead Qualifier
 
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.143.0+-009688)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-336791)](https://github.com/pgvector/pgvector)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -30,45 +30,46 @@ sequenceDiagram
     actor Client as Webhook Client / WhatsApp
     participant Auth as FastAPI Dependency (require_scope)
     participant Pool as AsyncConnectionPool
-    participant UoW1 as Unit of Work 1 (Idempotency)
-    participant LLM as LLM Adapter (OpenAI)
-    participant UoW2 as Unit of Work 2 (Scoring & State)
+    participant StateMachine as StateMachineService
+    participant LLM as OpenAIAdapter (LLMAdapterPort)
     participant DB as PostgreSQL 17 (core & tenant schemas)
 
-    Client->>Auth: POST /v1/conversations/turns (Bearer token)
-    Note over Auth,DB: Authenticate key hash & verify 'webhook:write' scope
+    Client->>Auth: POST /v1/conversations/turns (Bearer b2b_live_...)
+    Note over Auth,DB: Authenticate SHA-256 key hash & verify 'webhook:write' scope
     Auth->>DB: core.resolve_tenant_by_api_key(key_hash)
     DB-->>Auth: TenantContext(tenant_id, schema, scopes={'webhook:write'})
 
     rect rgb(240, 245, 255)
-    Note over Pool,UoW1: Unit of Work 1 — Transaction & Atomic Idempotency
-    Auth->>Pool: Acquire connection
+    Note over Pool,StateMachine: Unit of Work 1 — Idempotency & Terminal Check
+    Auth->>StateMachine: process_turn(TurnRequest)
+    StateMachine->>Pool: Acquire connection via uow_factory()
     Pool->>DB: SET LOCAL app.current_tenant = tenant_id
-    UoW1->>DB: INSERT INTO messages (message_id) ON CONFLICT DO NOTHING
-    UoW1->>DB: SELECT current_state FROM conversation_states (read-only)
-    UoW1->>Pool: Commit transaction & return connection to pool
+    StateMachine->>DB: INSERT INTO processed_messages (message_id) ON CONFLICT DO NOTHING
+    StateMachine->>DB: SELECT current_state FROM conversation_states (read-only)
+    StateMachine->>Pool: Commit transaction & return connection to pool
     end
 
     rect rgb(255, 250, 240)
-    Note over LLM: Decoupled LLM Edge Call (Zero DB locks / No pooled connection held)
-    Auth->>LLM: extract_slots(user_message)
-    LLM-->>Auth: LeadSlots(role, revenue, ...)
+    Note over LLM: Unlocked Edge Extraction (Zero DB locks / No pooled connection held)
+    StateMachine->>LLM: extract_slots(user_message)
+    LLM-->>StateMachine: LeadSlots(role, revenue_tier, company_size)
     end
 
     rect rgb(240, 255, 245)
-    Note over Pool,UoW2: Unit of Work 2 — Deterministic Scoring & State Update
-    Auth->>Pool: Acquire new connection from pool
+    Note over Pool,StateMachine: Unit of Work 2 — Scoring & State Transition
+    StateMachine->>Pool: Acquire new connection via uow_factory()
     Pool->>DB: SET LOCAL app.current_tenant = tenant_id
-    UoW2->>DB: SELECT ... FROM conversation_states FOR UPDATE (Row Lock)
-    Note over UoW2: Merge slots, test knockouts, verify required slots
-    opt If Terminal State (Knockout / Qualified)
-        UoW2->>DB: INSERT INTO scoring_results (Audit trail)
+    StateMachine->>DB: SELECT ... FROM conversation_states FOR UPDATE (Row Lock)
+    Note over StateMachine: Merge slots, evaluate knockout rules, verify required_slots
+    opt If Terminal State (Knockout / Qualified / Not Qualified)
+        StateMachine->>DB: INSERT INTO scoring_results (Audit trail)
     end
-    UoW2->>DB: UPDATE conversation_states & mark message processed
-    UoW2->>Pool: Commit transaction & return connection to pool
+    StateMachine->>DB: UPDATE conversation_states & mark message done in processed_messages
+    StateMachine->>Pool: Commit transaction & return connection to pool
     end
 
-    Auth-->>Client: 200 OK TurnResponse(reply_message, current_state, is_finished)
+    StateMachine-->>Auth: TurnResponse(reply_message, current_state, is_finished)
+    Auth-->>Client: 200 OK TurnResponse
 ```
 
 ---
@@ -78,7 +79,7 @@ sequenceDiagram
 The system applies defense-in-depth across the API, database, and presentation layers:
 
 ### 1. API Key Authentication & Scoped Authorization
-- Webhook and lead management endpoints require a Bearer token (`Authorization: Bearer lq_live_<token>`).
+- Webhook and lead management endpoints require a Bearer token (`Authorization: Bearer b2b_live_<token>`).
 - API keys are hashed using **SHA-256** prior to storage in `core.api_keys`. Raw keys are never stored in the database.
 - Keys enforce granular scopes (`scopes text[]`):
   - `webhook:write`: Required to process conversation turns via `POST /v1/conversations/turns`.
@@ -89,16 +90,16 @@ The system applies defense-in-depth across the API, database, and presentation l
 ### 2. Multi-Tenancy via PostgreSQL Row-Level Security (RLS)
 - Every tenant operates with dedicated schemas (`tenant_<slug>`) and tables configured with `FORCE ROW LEVEL SECURITY`.
 - Application database connections use an unprivileged role (`app_user`) that does **not** have the `BYPASSRLS` permission.
-- The active tenant is established per session via `SET LOCAL app.current_tenant = '<tenant_id>'`. If the variable is unset or invalid, RLS policies fail closed and queries return zero rows.
+- The active tenant is established per transaction (re-applied in each short Unit of Work via `SET LOCAL app.current_tenant = '<tenant_id>'`) inside an active transaction block. If the variable is unset or invalid, RLS policies fail closed and queries return zero rows.
 - All tenant tables enforce composite foreign keys including `tenant_id` to guarantee cross-tenant referential integrity.
 
 ### 3. Dashboard Anti-XSS Protection
-- The administrative dashboard uses **Jinja2 autoescape** to prevent server-side template injection.
+- The administrative dashboard uses **Jinja2 autoescape**, preventing reflected and stored XSS in the rendered HTML.
 - Client-side DOM rendering is performed strictly via `document.createElement()` and `element.textContent`, eliminating `innerHTML` injection risks from untrusted lead input.
 
 ### 4. PII Protection & Structured Logging
-- Phone numbers and identifying lead data are masked in application logs (e.g. `+55 11 9****-**88`).
-- Logging outputs structured messages with lazy argument evaluation suitable for log aggregation.
+- Phone numbers and identifying lead data are masked in application logs using the exact format produced by `mask_phone_number` (e.g. `+5511*****8888`).
+- Logging outputs structured messages with lazy argument evaluation (`logger.info("...%s", value)`).
 
 ---
 
@@ -112,18 +113,22 @@ Lead scoring evaluates extracted lead attributes against data-driven rules store
 - **Auditability:** Evaluation produces an immutable `ScoringResult(final_score, is_qualified, is_knocked_out, reasons)` stored in `scoring_results` only when a terminal state is reached, referencing the exact rule set version used.
 - **Schema Validation:** Rule definitions loaded from database JSONB are strictly validated via Pydantic discriminated unions (`KnockoutRuleModel`, `ExactMatchRuleModel`), preventing runtime failures on malformed rules.
 
-### Example Scoring Matrix
+### Example Scoring Matrix (Demo Tenant Rules)
 
 | Rule Type | Evaluated Field | Value / Condition | Points / Action |
 |---|---|---|---|
-| **Knockout** | `role` | `"estudante"` / `"intern"` | **Immediate Disqualification** |
-| **Exact Match** | `role` | `"CEO"` / `"Founder"` | **+50 points** |
-| **Exact Match** | `role` | `"Director"` / `"VP"` | **+40 points** |
-| **Exact Match** | `revenue` | `"5 milhoes ao ano"` | **+50 points** |
-| **Exact Match** | `revenue` | `"10 milhoes ao ano"` | **+50 points** |
-| **Exact Match** | `company_size` | `"large_51_to_200"` | **+30 points** |
+| **Knockout** | `role` | `"estudante"` | **Immediate Disqualification** |
+| **Knockout** | `role` | `"estagiario"` | **Immediate Disqualification** |
+| **Knockout** | `revenue_tier` | `"below_500k"` | **Immediate Disqualification** |
+| **Exact Match** | `role` | `"CEO"` | **+50 points** |
+| **Exact Match** | `role` | `"Diretor"` | **+40 points** |
+| **Exact Match** | `role` | `"Gerente"` | **+25 points** |
+| **Exact Match** | `revenue_tier` | `"2m_to_10m"` | **+35 points** |
+| **Exact Match** | `revenue_tier` | `"above_10m"` | **+50 points** |
+| **Exact Match** | `company_size` | `"enterprise_above_200"` | **+30 points** |
 
 *Default qualification threshold: 50 points.*
+*Mandatory required slots: `["role", "revenue_tier"]`.*
 
 ---
 
@@ -133,32 +138,52 @@ Lead scoring evaluates extracted lead attributes against data-driven rules store
 
 ```http
 POST /v1/conversations/turns
-Authorization: Bearer lq_live_your_tenant_api_key
+Authorization: Bearer b2b_live_your_tenant_api_key
 Content-Type: application/json
 ```
 
-#### Request Payload
+#### Turn 1: Lead provides job title (Role)
 
+**Request Payload:**
 ```json
 {
   "message_id": "wamid.HBgLMjU1NDk5OTk5ODg4OAA=",
   "phone_number": "+5511999998888",
-  "user_message": "Hello, I am the CEO of a software company with 80 employees and annual revenue above $10M."
+  "user_message": "Ola! Sou CEO de uma empresa de tecnologia."
 }
 ```
 
-#### Response Payload
-
+**Response Payload:**
 ```json
 {
-  "reply_message": "Welcome! Your profile matches our qualification criteria. One of our account executives will contact you shortly!",
+  "reply_message": "Entendido! E qual a media de faturamento anual ou mensal da sua empresa atualmente?",
+  "current_state": "AWAITING_REVENUE",
+  "is_finished": false
+}
+```
+
+#### Turn 2: Lead provides annual revenue bracket (Revenue Tier)
+
+**Request Payload:**
+```json
+{
+  "message_id": "wamid.HBgLMjU1NDk5OTk5ODg4OAE=",
+  "phone_number": "+5511999998888",
+  "user_message": "Nosso faturamento anual fica em torno de 5 milhoes ao ano."
+}
+```
+
+**Response Payload:**
+```json
+{
+  "reply_message": "Excelente! Seu perfil se encaixa perfeitamente nas solucoes da nossa plataforma. Um executivo de contas entrara em contato!",
   "current_state": "QUALIFIED",
   "is_finished": true
 }
 ```
 
-#### Idempotency
-Duplicate webhook retries with the same `message_id` are caught atomically via `INSERT INTO messages ... ON CONFLICT DO NOTHING`. If a duplicate is received, the system returns `current_state: DUPLICATE_IGNORED` without re-running LLM inference or scoring.
+#### Idempotency & Message Lifecycle
+Duplicate webhook retries with the same `message_id` are tracked atomically in the tenant's `processed_messages` table with lifecycle statuses: `processing`, `done`, and `failed`. If a message is already `done` or currently `processing`, the system returns `current_state: DUPLICATE_IGNORED` without re-running LLM inference or scoring. If a previous turn attempt crashed or timed out, stuck messages in `processing` status are atomically reclaimed for retry after `idempotency_timeout` (default 60 seconds).
 
 ---
 
@@ -186,21 +211,21 @@ Ensure database credentials and your `OPENAI_API_KEY` are populated in `.env`.
 # Start PostgreSQL 17 with pgvector
 docker compose up -d postgres
 
-# Apply database migrations via dbmate
-docker compose --profile tools run --rm dbmate up
+# Apply database migrations via dbmate runner
+docker compose run --rm migrator
 
 # Seed demo tenant
-docker exec -i b2b_db psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
+docker compose exec -T postgres psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.sql
 ```
 
 > **Note**: Database migrations were consolidated into a single baseline migration (`20261017000000_baseline.sql`) prior to the first public release, providing a clean schema definition without transitional migration artifacts.
 
 ### 4. Generate a Tenant API Key
-Use the administrative CLI to provision a secure API key for the demo tenant:
+Use the administrative CLI to provision a secure API key for the demo tenant (Acme Corp UUID: `11111111-1111-1111-1111-111111111111`):
 ```bash
-uv run b2b-lead-qualifier keys create-key --tenant demo --name "Local Development Key" --scope webhook:write --scope leads:read
+uv run b2b-lead-qualifier create-key --tenant 11111111-1111-1111-1111-111111111111 --name "Local Development Key" --scope webhook:write --scope leads:read
 ```
-The CLI outputs the plain-text key (e.g. `lq_live_...`). Store it securely; the database retains only the SHA-256 hash.
+The CLI outputs the plain-text key (e.g. `b2b_live_...`). Store it securely; the database retains only the SHA-256 hash.
 
 ### 5. Start the Application
 ```bash
@@ -208,7 +233,7 @@ uv run uvicorn lead_qualifier.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - **Interactive API Docs (Swagger UI):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- **Monitoring Dashboard:** [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
+- **Inspection Dashboard:** [http://127.0.0.1:8000/dashboard](http://127.0.0.1:8000/dashboard)
 - **Healthcheck:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
 ---
@@ -263,9 +288,11 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 
 - **No Native Rate Limiting:** The application does not enforce in-app rate limiting or brute-force throttling per tenant or IP. Rate limiting, DDoS mitigation, and traffic shaping must be enforced upstream by an API gateway or reverse proxy (e.g., Caddy, NGINX, Cloudflare).
 - **No Automated Key Rotation or Expiration:** API keys stored in `core.api_keys` have neither automated TTL expiration nor self-service rotation schedules. Key lifecycle and revocation are managed manually via administrative CLI commands.
-- **Unauthenticated Operator Dashboard:** The `/dashboard` view relies on the caller supplying an authorized API key with `leads:read` scope; there is no separate operator authentication, user session management, or Role-Based Access Control (RBAC).
+- **Unauthenticated Operator Dashboard Page:** The `/dashboard` endpoint serves a public HTML skeleton that contains zero lead data. The browser fetches lead data on-demand via `GET /v1/leads` requiring an operator key with `leads:read` scope; there is no user login session or Role-Based Access Control (RBAC).
+- **Dashboard Key Storage in sessionStorage:** The dashboard operator key is stored client-side in `sessionStorage`; closing the browser tab clears the key.
 - **Synchronous Ingestion Processing:** Webhook turns are processed within standard asynchronous request handlers without a persistent message broker (e.g., Redis Streams, RabbitMQ, Kafka). Under massive broadcast campaign spikes, upstream webhook throttling or queuing is recommended to prevent connection pool exhaustion.
 - **LLM Provider Latency:** Turns requiring semantic slot extraction perform an outbound HTTP call to OpenAI (~1-2 seconds). While database connections and locks are explicitly released during this call, total turn latency is constrained by the external provider.
+- **RAG Pipeline Prepared but Not Integrated:** PostgreSQL 17 with `pgvector` and HNSW indexing is configured in tenant schemas (`knowledge_base`), but vector retrieval is not currently wired into the conversational state machine turn loop.
 - **PostgreSQL Catalog Scaling with Schema-per-Tenant:** Schema-per-tenant provides robust tenant isolation and simple retention management, but PostgreSQL catalogs experience performance degradation when scaling past several hundred schemas on a single instance.
 
 ---
