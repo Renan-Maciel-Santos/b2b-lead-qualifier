@@ -16,7 +16,6 @@ def generate_api_key(
     tenant_id: str,
     name: str,
     scopes: list[str],
-    db_url: str | None = None,
 ) -> str:
     """Generate a cryptographically secure tenant API key and store its SHA-256 hash.
 
@@ -24,19 +23,28 @@ def generate_api_key(
         tenant_id: UUID string of the target tenant.
         name: Descriptive label for the API key.
         scopes: Granted permission scopes for the API key.
-        db_url: Optional database connection string override.
 
     Returns:
         str: Raw plaintext API key (displayed once).
+
+    Raises:
+        ValueError: If ADMIN_DATABASE_URL is not configured.
     """
+    settings = Settings()
+    if not settings.admin_database_url or not settings.admin_database_url.get_secret_value():
+        raise ValueError(
+            "Emissão de API keys é uma operação administrativa restrita. "
+            "Configure a variável de ambiente ADMIN_DATABASE_URL com credenciais de superuser ou role administrativo."
+        )
+
     tenant_uuid = UUID(tenant_id)
     raw_key = f"b2b_live_{secrets.token_urlsafe(32)}"
     key_hash = hash_api_key(raw_key)
 
-    settings = Settings()
-    conninfo = db_url or settings.database_url
-
-    with psycopg.connect(conninfo) as conn, conn.cursor() as cur:
+    with (
+        psycopg.connect(settings.admin_database_url.get_secret_value()) as conn,
+        conn.cursor() as cur,
+    ):
         cur.execute(
             """
             INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
@@ -90,12 +98,6 @@ def main() -> None:
         required=True,
         help="Permission scope granted to the API key (repeatable, e.g. --scope webhook:write)",
     )
-    key_parser.add_argument(
-        "--db-url",
-        required=False,
-        default=None,
-        help="Optional database connection URL override",
-    )
 
     args = parser.parse_args()
 
@@ -105,7 +107,6 @@ def main() -> None:
                 tenant_id=args.tenant,
                 name=args.name,
                 scopes=args.scopes,
-                db_url=args.db_url,
             )
             print("=" * 80)
             print("API KEY SUCCESSFULLY CREATED")

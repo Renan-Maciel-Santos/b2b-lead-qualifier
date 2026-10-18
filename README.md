@@ -204,7 +204,7 @@ Copy the example environment file:
 ```bash
 cp .env.example .env
 ```
-Ensure database credentials and your `OPENAI_API_KEY` are populated in `.env`.
+Ensure database credentials, `ADMIN_DATABASE_URL` (used exclusively for key provisioning), and your `OPENAI_API_KEY` are populated in `.env`.
 
 ### 3. Start Database & Run Migrations
 ```bash
@@ -221,9 +221,13 @@ docker compose exec -T postgres psql -U postgres -d b2b_lead_qualifier -f /db/se
 > **Note**: Database migrations were consolidated into a single baseline migration (`20261017000000_baseline.sql`) prior to the first public release, providing a clean schema definition without transitional migration artifacts.
 
 ### 4. Generate a Tenant API Key
-Use the administrative CLI to provision a secure API key for the demo tenant (Acme Corp UUID: `11111111-1111-1111-1111-111111111111`):
+Use the administrative CLI to provision a secure API key for the demo tenant (Acme Corp UUID: `11111111-1111-1111-1111-111111111111`). The CLI connects via `ADMIN_DATABASE_URL` configured in `.env`:
 ```bash
-uv run b2b-lead-qualifier create-key --tenant 11111111-1111-1111-1111-111111111111 --name "Local Development Key" --scope webhook:write --scope leads:read
+uv run b2b-lead-qualifier create-key \
+  --tenant 11111111-1111-1111-1111-111111111111 \
+  --name "Local Development Key" \
+  --scope webhook:write \
+  --scope leads:read
 ```
 The CLI outputs the plain-text key (e.g. `b2b_live_...`). Store it securely; the database retains only the SHA-256 hash.
 
@@ -294,6 +298,7 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 - **LLM Provider Latency:** Turns requiring semantic slot extraction perform an outbound HTTP call to OpenAI (~1-2 seconds). While database connections and locks are explicitly released during this call, total turn latency is constrained by the external provider.
 - **RAG Pipeline Prepared but Not Integrated:** PostgreSQL 17 with `pgvector` and HNSW indexing is configured in tenant schemas (`knowledge_base`), but vector retrieval is not currently wired into the conversational state machine turn loop.
 - **PostgreSQL Catalog Scaling with Schema-per-Tenant:** Schema-per-tenant provides robust tenant isolation and simple retention management, but PostgreSQL catalogs experience performance degradation when scaling past several hundred schemas on a single instance.
+- **CLI Key Provisioning Connection:** The administrative CLI requires administrative database access (`ADMIN_DATABASE_URL`) to insert into `core.api_keys` because the web application's unprivileged role (`app_user`) has `REVOKE ALL` on that table. In production, key provisioning should use a dedicated deployment/infrastructure role with least-privilege permissions on `core.api_keys`, rather than the database superuser.
 
 ---
 

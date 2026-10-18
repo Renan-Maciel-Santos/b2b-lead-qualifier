@@ -22,6 +22,7 @@ class Settings(BaseSettings):
         db_pool_max: Maximum open connections in the pool.
         openai_api_key: OpenAI API secret key for LLM adapter.
         domain: Domain name for reverse proxy TLS certificate.
+        admin_database_url: Dedicated administrative database URL for CLI operations.
     """
 
     model_config = SettingsConfigDict(
@@ -41,6 +42,8 @@ class Settings(BaseSettings):
     db_password: SecretStr = SecretStr("change-this-app-password")
     db_admin_user: str = "postgres"
     db_admin_password: SecretStr | None = None
+    # Dedicated admin connection for CLI API key provisioning (never used by the web app)
+    admin_database_url: SecretStr | None = None
 
     db_pool_min: int = 1
     db_pool_max: int = 10
