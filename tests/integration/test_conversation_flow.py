@@ -4,7 +4,7 @@ import asyncio
 import os
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
@@ -12,8 +12,10 @@ from httpx import AsyncClient
 from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.api.dependencies import create_tenant_uow_factory
+from lead_qualifier.api.main import app
 from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.enums import ConversationState, RevenueTier
+from lead_qualifier.core.exceptions import LLMExtractionError
 from lead_qualifier.core.messages import (
     ASK_REVENUE_REPLY,
     QUALIFIED_REPLY,
@@ -374,3 +376,120 @@ async def test_first_turn_knockout_terminates_immediately(
     )
     assert response.current_state == ConversationState.DISQUALIFIED
     assert response.is_finished is True
+
+
+async def test_llm_extraction_failure_marks_message_failed_and_returns_503(
+    api_client: AsyncClient,
+    db_pool: AsyncConnectionPool,
+) -> None:
+    """Verify that when LLM extraction fails, the message is marked failed, no state is updated, and HTTP 503 is returned."""
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+    message_id = f"http_msg_err_{uuid.uuid4()}"
+    headers = {"Authorization": f"Bearer {API_KEY_TEST}"}
+
+    failing_adapter = AsyncMock()
+    failing_adapter.extract_slots = AsyncMock(
+        side_effect=LLMExtractionError("Outbound OpenAI connection timeout")
+    )
+
+    with patch.object(app.state, "llm_adapter", failing_adapter):
+        payload = {
+            "message_id": message_id,
+            "phone_number": phone,
+            "user_message": "Ola, sou CEO",
+        }
+        response = await api_client.post(
+            "/v1/conversations/turns",
+            json=payload,
+            headers=headers,
+        )
+
+        assert response.status_code == 503
+        assert (
+            response.json()["detail"] == "LLM extraction service unavailable. Please retry later."
+        )
+
+    # Verify database state under isolation
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
+    async with tenant_transaction(db_pool, tenant_ctx) as conn, conn.cursor() as cur:
+        # Message must be marked failed
+        await cur.execute(
+            "SELECT status FROM tenant_test.processed_messages WHERE message_id = %s",
+            (message_id,),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "failed"
+
+        # Conversation state must NOT have been created or modified
+        await cur.execute(
+            "SELECT current_state FROM tenant_test.conversation_states WHERE phone_number = %s",
+            (phone,),
+        )
+        state_row = await cur.fetchone()
+        assert state_row is None
+
+
+async def test_failed_message_reprocessed_successfully_after_timeout(
+    api_client: AsyncClient,
+    db_pool: AsyncConnectionPool,
+) -> None:
+    """Verify that a failed message can be re-delivered and successfully processed after timeout expiration."""
+    phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
+    message_id = f"http_msg_retry_{uuid.uuid4()}"
+    headers = {"Authorization": f"Bearer {API_KEY_TEST}"}
+
+    # Step 1: Initial failure
+    failing_adapter = AsyncMock()
+    failing_adapter.extract_slots = AsyncMock(
+        side_effect=LLMExtractionError("Outbound OpenAI connection timeout")
+    )
+    with patch.object(app.state, "llm_adapter", failing_adapter):
+        payload = {
+            "message_id": message_id,
+            "phone_number": phone,
+            "user_message": "Ola, sou CEO da empresa",
+        }
+        res1 = await api_client.post("/v1/conversations/turns", json=payload, headers=headers)
+        assert res1.status_code == 503
+
+    # Step 2: Simulate timeout expiration (70 seconds in the past)
+    tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
+    async with tenant_transaction(db_pool, tenant_ctx) as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
+            UPDATE tenant_test.processed_messages
+            SET updated_at = NOW() - INTERVAL '70 seconds'
+            WHERE message_id = %s
+            """,
+            (message_id,),
+        )
+
+    # Step 3: Re-submit the exact same message_id with working LLM adapter
+    successful_adapter = AsyncMock()
+    successful_adapter.extract_slots = AsyncMock(return_value=LeadSlots(role="CEO"))
+    with patch.object(app.state, "llm_adapter", successful_adapter):
+        res2 = await api_client.post("/v1/conversations/turns", json=payload, headers=headers)
+        assert res2.status_code == 200
+        data = res2.json()
+        assert data["current_state"] == "AWAITING_REVENUE"
+        assert data["is_finished"] is False
+
+    # Step 4: Verify message is now done and state is persisted
+    async with tenant_transaction(db_pool, tenant_ctx) as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT status FROM tenant_test.processed_messages WHERE message_id = %s",
+            (message_id,),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "done"
+
+        await cur.execute(
+            "SELECT current_state, accumulated_slots FROM tenant_test.conversation_states WHERE phone_number = %s",
+            (phone,),
+        )
+        state_row = await cur.fetchone()
+        assert state_row is not None
+        assert state_row[0] == "AWAITING_REVENUE"
+        assert state_row[1] == {"role": "CEO"}

@@ -2,6 +2,7 @@
 
 from openai import AsyncOpenAI, OpenAIError
 
+from lead_qualifier.core.exceptions import LLMExtractionError
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.schemas.slots import LeadSlots
 from lead_qualifier.core.settings import Settings
@@ -74,6 +75,5 @@ class OpenAIAdapter:
             return extracted_data
 
         except OpenAIError as e:
-            # Fall back gracefully to empty slots to avoid crashing the state machine on external API outage
             logger.error("Critical error during OpenAI slot extraction: %s", e, exc_info=True)
-            return LeadSlots()
+            raise LLMExtractionError("Failed to extract slots from LLM provider") from e
