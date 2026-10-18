@@ -60,11 +60,14 @@ def generate_api_key(
 def run_server() -> None:
     """Run the FastAPI application server using uvicorn."""
     settings = Settings()
+    # On Windows, psycopg async requires SelectorEventLoop instead of ProactorEventLoop
+    loop_arg = "none" if sys.platform == "win32" else "auto"
     uvicorn.run(
         "lead_qualifier.api.main:app",
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.api_env == "development",
+        loop=loop_arg,
     )
 
 
