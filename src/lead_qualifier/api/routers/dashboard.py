@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.core.database import get_db_pool, tenant_transaction
-from lead_qualifier.core.tenant import TenantContext, get_tenant_context
+from lead_qualifier.core.tenant import TenantContext, require_scope
 
 router = APIRouter(tags=["Dashboard"])
 
@@ -25,7 +25,7 @@ jinja_env = jinja2.Environment(
 @router.get("/v1/leads")
 async def get_leads(
     pool: Annotated[AsyncConnectionPool, Depends(get_db_pool)],
-    tenant_ctx: Annotated[TenantContext, Depends(get_tenant_context)],
+    tenant_ctx: Annotated[TenantContext, Depends(require_scope("leads:read"))],
 ) -> dict[str, Any]:
     """Retrieve the most recent lead qualification scores for the authenticated tenant.
 

@@ -28,6 +28,8 @@ TENANT_INVASOR = "22222222-2222-2222-2222-222222222222"
 # Deterministic API keys for testing
 API_KEY_TEST = "b2b_live_test_tenant_33333333333333333333"
 API_KEY_INVASOR = "b2b_live_attacker_222222222222222222222222"
+API_KEY_READONLY = "b2b_live_test_readonly_33333333333333333333"
+API_KEY_WEBHOOK_ONLY = "b2b_live_test_webhook_33333333333333333333"
 
 # Backward compatibility aliases
 TENANT_DEMO = TENANT_TEST
@@ -136,23 +138,67 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
         # Seed test API keys deterministically
         await cur.execute(
             """
-            INSERT INTO core.api_keys (tenant_id, key_hash, name)
-            VALUES (%s, %s, %s)
+            INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (key_hash) DO UPDATE SET
                 tenant_id = EXCLUDED.tenant_id,
+                scopes = EXCLUDED.scopes,
                 revoked_at = NULL
             """,
-            (TENANT_TEST, hash_api_key(API_KEY_TEST), "Test Tenant API Key"),
+            (
+                TENANT_TEST,
+                hash_api_key(API_KEY_TEST),
+                "Test Tenant API Key",
+                ["webhook:write", "leads:read"],
+            ),
         )
         await cur.execute(
             """
-            INSERT INTO core.api_keys (tenant_id, key_hash, name)
-            VALUES (%s, %s, %s)
+            INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (key_hash) DO UPDATE SET
                 tenant_id = EXCLUDED.tenant_id,
+                scopes = EXCLUDED.scopes,
                 revoked_at = NULL
             """,
-            (TENANT_INVASOR, hash_api_key(API_KEY_INVASOR), "Attacker Tenant Test Key"),
+            (
+                TENANT_TEST,
+                hash_api_key(API_KEY_READONLY),
+                "Test Tenant Read-Only Key",
+                ["leads:read"],
+            ),
+        )
+        await cur.execute(
+            """
+            INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (key_hash) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                scopes = EXCLUDED.scopes,
+                revoked_at = NULL
+            """,
+            (
+                TENANT_TEST,
+                hash_api_key(API_KEY_WEBHOOK_ONLY),
+                "Test Tenant Webhook-Only Key",
+                ["webhook:write"],
+            ),
+        )
+        await cur.execute(
+            """
+            INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (key_hash) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                scopes = EXCLUDED.scopes,
+                revoked_at = NULL
+            """,
+            (
+                TENANT_INVASOR,
+                hash_api_key(API_KEY_INVASOR),
+                "Attacker Tenant Test Key",
+                ["webhook:write", "leads:read"],
+            ),
         )
         # Enforce least privilege permissions on core.api_keys
         await cur.execute("REVOKE SELECT ON core.api_keys FROM app_user")

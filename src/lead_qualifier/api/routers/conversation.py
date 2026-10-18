@@ -10,7 +10,7 @@ from lead_qualifier.core.database import get_db_pool
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.masking import mask_phone_number
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-from lead_qualifier.core.tenant import TenantContext, get_tenant_context
+from lead_qualifier.core.tenant import TenantContext, require_scope
 
 router = APIRouter(tags=["Conversations"])
 
@@ -20,7 +20,7 @@ router = APIRouter(tags=["Conversations"])
 async def conversation_turn(
     request: TurnRequest,
     pool: Annotated[AsyncConnectionPool, Depends(get_db_pool)],
-    tenant_ctx: Annotated[TenantContext, Depends(get_tenant_context)],
+    tenant_ctx: Annotated[TenantContext, Depends(require_scope("webhook:write"))],
 ) -> TurnResponse:
     """Process an inbound conversation message turn with idempotency and lead scoring.
 

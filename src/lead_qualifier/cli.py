@@ -12,12 +12,18 @@ from lead_qualifier.core.security import hash_api_key
 from lead_qualifier.core.settings import Settings
 
 
-def generate_api_key(tenant_id: str, name: str, db_url: str | None = None) -> str:
+def generate_api_key(
+    tenant_id: str,
+    name: str,
+    scopes: list[str],
+    db_url: str | None = None,
+) -> str:
     """Generate a cryptographically secure tenant API key and store its SHA-256 hash.
 
     Args:
         tenant_id: UUID string of the target tenant.
         name: Descriptive label for the API key.
+        scopes: Granted permission scopes for the API key.
         db_url: Optional database connection string override.
 
     Returns:
@@ -33,10 +39,10 @@ def generate_api_key(tenant_id: str, name: str, db_url: str | None = None) -> st
     with psycopg.connect(conninfo) as conn, conn.cursor() as cur:
         cur.execute(
             """
-                INSERT INTO core.api_keys (tenant_id, key_hash, name)
-                VALUES (%s, %s, %s)
-                """,
-            (str(tenant_uuid), key_hash, name),
+            INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (str(tenant_uuid), key_hash, name, scopes),
         )
         conn.commit()
 
@@ -78,6 +84,13 @@ def main() -> None:
         help="Descriptive name for the API key",
     )
     key_parser.add_argument(
+        "--scope",
+        dest="scopes",
+        action="append",
+        required=True,
+        help="Permission scope granted to the API key (repeatable, e.g. --scope webhook:write)",
+    )
+    key_parser.add_argument(
         "--db-url",
         required=False,
         default=None,
@@ -91,12 +104,14 @@ def main() -> None:
             raw_key = generate_api_key(
                 tenant_id=args.tenant,
                 name=args.name,
+                scopes=args.scopes,
                 db_url=args.db_url,
             )
             print("=" * 80)
             print("API KEY SUCCESSFULLY CREATED")
             print(f"Tenant ID: {args.tenant}")
             print(f"Name:      {args.name}")
+            print(f"Scopes:    {', '.join(args.scopes)}")
             print(f"Raw Key:   {raw_key}")
             print("=" * 80)
             print("WARNING: Store this key securely. It will NEVER be shown again.")

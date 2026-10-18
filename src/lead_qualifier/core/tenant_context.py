@@ -1,6 +1,6 @@
 """Immutable tenant execution context."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 
@@ -10,3 +10,4 @@ class TenantContext:
 
     tenant_id: UUID
     schema_name: str
+    scopes: frozenset[str] = field(default_factory=frozenset)
