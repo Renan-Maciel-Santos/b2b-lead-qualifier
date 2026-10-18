@@ -89,4 +89,6 @@ jobs:
           DB_PASSWORD: secret
           DB_ADMIN_USER: postgres
           DB_ADMIN_PASSWORD: secret
+          ADMIN_DATABASE_URL: postgresql://postgres:secret@127.0.0.1:5432/b2b_lead_qualifier
+          LLM_PROVIDER: fake
         run: uv run pytest -v
