@@ -219,7 +219,7 @@ async def test_no_tenant_context_leakage_across_pool_checkouts(
             await repo_a.save_conversation_state(
                 phone_number=phone,
                 current_state="QUALIFIED",
-                accumulated_slots={"role": "CEO", "revenue": "5M"},
+                accumulated_slots={"role": "CEO", "revenue_tier": "2m_to_10m"},
             )
 
         # Step 2: Acquire the SAME connection from the pool outside of any unit of work

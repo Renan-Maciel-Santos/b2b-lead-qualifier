@@ -225,7 +225,7 @@ class StateMachineService:
                 # Branch 3: Missing required slot(s) -> ask next missing slot in configured order
                 else:
                     next_slot = missing_slots[0]
-                    if next_slot == "revenue":
+                    if next_slot in ("revenue_tier", "revenue"):
                         new_state = ConversationState.AWAITING_REVENUE
                         reply = ASK_REVENUE_REPLY
                     elif next_slot == "role":
