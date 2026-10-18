@@ -1,7 +1,7 @@
 [project]
 name = "b2b-lead-qualifier"
 version = "0.1.0"
-description = "Enterprise conversational B2B lead qualification platform: multi-tenant PostgreSQL 17 + pgvector, deterministic scoring core, FastAPI and LLM edge."
+description = "Conversational B2B lead qualification service: multi-tenant PostgreSQL 17 + pgvector, deterministic scoring core, FastAPI and LLM edge."
 readme = "README.md"
 authors = [
     { name = "Renan Maciel" }

@@ -25,34 +25,50 @@ Many conversational AI implementations delegate critical business decisions dire
 ## System Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion ["Ingestion & Authentication"]
-        CLIENT["WhatsApp Relay / Webhook Caller"] -->|POST /v1/conversations/turns<br/>Authorization: Bearer lq_live_...| AUTH["FastAPI Security Dependency"]
-        AUTH -->|SHA-256 Lookup| DB_KEYS[("core.api_keys")]
-        AUTH -->|Resolved tenant_id| APP["Application Context"]
+sequenceDiagram
+    autonumber
+    actor Client as Webhook Client / WhatsApp
+    participant Auth as FastAPI Dependency (require_scope)
+    participant Pool as AsyncConnectionPool
+    participant UoW1 as Unit of Work 1 (Idempotency)
+    participant LLM as LLM Adapter (OpenAI)
+    participant UoW2 as Unit of Work 2 (Scoring & State)
+    participant DB as PostgreSQL 17 (core & tenant schemas)
+
+    Client->>Auth: POST /v1/conversations/turns (Bearer token)
+    Note over Auth,DB: Authenticate key hash & verify 'webhook:write' scope
+    Auth->>DB: core.resolve_tenant_by_api_key(key_hash)
+    DB-->>Auth: TenantContext(tenant_id, schema, scopes={'webhook:write'})
+
+    rect rgb(240, 245, 255)
+    Note over Pool,UoW1: Unit of Work 1 — Transaction & Atomic Idempotency
+    Auth->>Pool: Acquire connection
+    Pool->>DB: SET LOCAL app.current_tenant = tenant_id
+    UoW1->>DB: INSERT INTO messages (message_id) ON CONFLICT DO NOTHING
+    UoW1->>DB: SELECT current_state FROM conversation_states (read-only)
+    UoW1->>Pool: Commit transaction & return connection to pool
     end
 
-    subgraph AppCore ["Core Application Services"]
-        APP --> CTRL["TurnController"]
-        CTRL --> IDEMP["Idempotency Guard<br/>(Atomic INSERT ON CONFLICT)"]
-        CTRL --> SM["StateMachineService"]
-        SM --> LLM["LLM Adapter<br/>(OpenAI Structured Outputs)"]
-        SM --> SCORE["ScoringService<br/>(Strategy Pattern)"]
+    rect rgb(255, 250, 240)
+    Note over LLM: Decoupled LLM Edge Call (Zero DB locks / No pooled connection held)
+    Auth->>LLM: extract_slots(user_message)
+    LLM-->>Auth: LeadSlots(role, revenue, ...)
     end
 
-    subgraph Storage ["PostgreSQL 17 (FORCE RLS)"]
-        APP -.->|SET LOCAL app.current_tenant| DB_SESSION["Tenant DB Session"]
-        SCORE --> R_SCORE[("scoring_results (Audit Trail)")]
-        SCORE --> R_RULES[("scoring_rule_sets (Versioned JSONB)")]
-        SM --> R_STATE[("conversation_states (Row Lock FOR UPDATE)")]
-        LLM -.->|HNSW Vector Search| R_VEC[("knowledge_base (pgvector)")]
+    rect rgb(240, 255, 245)
+    Note over Pool,UoW2: Unit of Work 2 — Deterministic Scoring & State Update
+    Auth->>Pool: Acquire new connection from pool
+    Pool->>DB: SET LOCAL app.current_tenant = tenant_id
+    UoW2->>DB: SELECT ... FROM conversation_states FOR UPDATE (Row Lock)
+    Note over UoW2: Merge slots, test knockouts, verify required slots
+    opt If Terminal State (Knockout / Qualified)
+        UoW2->>DB: INSERT INTO scoring_results (Audit trail)
+    end
+    UoW2->>DB: UPDATE conversation_states & mark message processed
+    UoW2->>Pool: Commit transaction & return connection to pool
     end
 
-    subgraph AdminUI ["Management & Inspection"]
-        APP --> DASH["Real-Time Dashboard (/dashboard)"]
-        APP --> SWAG["Interactive Docs (/docs)"]
-        CLI["CLI Tool (keys)"] -->|Generate & Hash Keys| DB_KEYS
-    end
+    Auth-->>Client: 200 OK TurnResponse(reply_message, current_state, is_finished)
 ```
 
 ---
@@ -61,10 +77,14 @@ flowchart TD
 
 The system applies defense-in-depth across the API, database, and presentation layers:
 
-### 1. API Key Authentication & Tenant Resolution
-- Webhook endpoints require a Bearer token (`Authorization: Bearer lq_live_<token>`).
+### 1. API Key Authentication & Scoped Authorization
+- Webhook and lead management endpoints require a Bearer token (`Authorization: Bearer lq_live_<token>`).
 - API keys are hashed using **SHA-256** prior to storage in `core.api_keys`. Raw keys are never stored in the database.
-- Endpoints use uniform paths (`/v1/conversations/turns`, `/v1/leads`), removing tenant identifiers from URLs and deriving tenant scope entirely from the verified API key.
+- Keys enforce granular scopes (`scopes text[]`):
+  - `webhook:write`: Required to process conversation turns via `POST /v1/conversations/turns`.
+  - `leads:read`: Required to inspect leads and state via `GET /v1/leads` and `/dashboard`.
+- Routes validate authorization via a reusable dependency: `require_scope("webhook:write")`. Requests with missing or insufficient scopes fail closed with `403 Forbidden`.
+- Endpoints use uniform paths, deriving tenant context and scopes entirely from the verified API key.
 
 ### 2. Multi-Tenancy via PostgreSQL Row-Level Security (RLS)
 - Every tenant operates with dedicated schemas (`tenant_<slug>`) and tables configured with `FORCE ROW LEVEL SECURITY`.
@@ -78,7 +98,7 @@ The system applies defense-in-depth across the API, database, and presentation l
 
 ### 4. PII Protection & Structured Logging
 - Phone numbers and identifying lead data are masked in application logs (e.g. `+55 11 9****-**88`).
-- Logging outputs structured JSON suitable for central log aggregation.
+- Logging outputs structured messages with lazy argument evaluation suitable for log aggregation.
 
 ---
 
@@ -88,7 +108,7 @@ Lead scoring evaluates extracted lead attributes against data-driven rules store
 
 - **Knockout Rules (`KnockoutStrategy`):** Immediate disqualification on prohibited attributes (e.g., students, unsupported regions). Returns a typed `StrategyResult(is_knockout=True)` that halts evaluation early and terminates dialogue immediately (fail-early).
 - **Exact Match Rules (`ExactMatchStrategy`):** Cumulative point allocation based on validated values (e.g., job role, revenue bracket).
-- **Fail-Early Knockout vs. Complete Qualification (ADR 0005):** Knockout rules terminate the conversation immediately at any turn (`DISQUALIFIED`). Conversely, positive qualification (`QUALIFIED` or `NOT_QUALIFIED`) can only be decided after **all required slots** (configured or derived from rules) have been collected. This prevents high-scoring attributes (like a CEO title) from prematurely bypassing knockout checks on uncollected attributes (like minimum revenue).
+- **Fail-Early Knockout vs. Complete Qualification (ADR 0005):** Knockout rules terminate the conversation immediately at any turn (`DISQUALIFIED`). Conversely, positive qualification (`QUALIFIED` or `NOT_QUALIFIED`) can only be decided after **all required slots** configured in `required_slots` have been collected. This prevents high-scoring attributes (like a CEO title) from prematurely bypassing knockout checks on uncollected attributes (like minimum revenue).
 - **Auditability:** Evaluation produces an immutable `ScoringResult(final_score, is_qualified, is_knocked_out, reasons)` stored in `scoring_results` only when a terminal state is reached, referencing the exact rule set version used.
 - **Schema Validation:** Rule definitions loaded from database JSONB are strictly validated via Pydantic discriminated unions (`KnockoutRuleModel`, `ExactMatchRuleModel`), preventing runtime failures on malformed rules.
 
@@ -99,8 +119,8 @@ Lead scoring evaluates extracted lead attributes against data-driven rules store
 | **Knockout** | `role` | `"estudante"` / `"intern"` | **Immediate Disqualification** |
 | **Exact Match** | `role` | `"CEO"` / `"Founder"` | **+50 points** |
 | **Exact Match** | `role` | `"Director"` / `"VP"` | **+40 points** |
-| **Exact Match** | `revenue_tier` | `"above_10m"` | **+50 points** |
-| **Exact Match** | `revenue_tier` | `"2m_to_10m"` | **+35 points** |
+| **Exact Match** | `revenue` | `"5 milhoes ao ano"` | **+50 points** |
+| **Exact Match** | `revenue` | `"10 milhoes ao ano"` | **+50 points** |
 | **Exact Match** | `company_size` | `"large_51_to_200"` | **+30 points** |
 
 *Default qualification threshold: 50 points.*
@@ -131,7 +151,7 @@ Content-Type: application/json
 
 ```json
 {
-  "reply_message": "Welcome! Your profile matches our enterprise solutions perfectly. One of our account executives will contact you shortly!",
+  "reply_message": "Welcome! Your profile matches our qualification criteria. One of our account executives will contact you shortly!",
   "current_state": "QUALIFIED",
   "is_finished": true
 }
@@ -178,7 +198,7 @@ docker exec -i b2b_db psql -U postgres -d b2b_lead_qualifier -f /db/seeds/demo.s
 ### 4. Generate a Tenant API Key
 Use the administrative CLI to provision a secure API key for the demo tenant:
 ```bash
-uv run python -m lead_qualifier.cli.keys create-key --tenant demo --name "Local Development Key"
+uv run b2b-lead-qualifier keys create-key --tenant demo --name "Local Development Key" --scope webhook:write --scope leads:read
 ```
 The CLI outputs the plain-text key (e.g. `lq_live_...`). Store it securely; the database retains only the SHA-256 hash.
 
@@ -239,11 +259,14 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 
 ---
 
-## Known Trade-offs & Limitations
+## Known Limitations
 
-1. **LLM Edge Latency:** Each turn requiring slot extraction issues a synchronous request to the LLM API (~1-2 seconds response time). Future revisions can introduce local quantized models or caching for repeated phrases.
-2. **Schema-per-Tenant Scale:** Schema-per-tenant provides strong isolation and straightforward data lifecycle management, but PostgreSQL catalogs experience overhead beyond several hundred schemas on a single instance.
-3. **Webhook Concurrency:** Webhooks are currently processed within FastAPI worker processes. In high-volume WhatsApp campaign spikes, fronting the endpoint with a persistent message broker (e.g., Redis Streams, RabbitMQ) is recommended to absorb ingestion bursts.
+- **No Native Rate Limiting:** The application does not enforce in-app rate limiting or brute-force throttling per tenant or IP. Rate limiting, DDoS mitigation, and traffic shaping must be enforced upstream by an API gateway or reverse proxy (e.g., Caddy, NGINX, Cloudflare).
+- **No Automated Key Rotation or Expiration:** API keys stored in `core.api_keys` have neither automated TTL expiration nor self-service rotation schedules. Key lifecycle and revocation are managed manually via administrative CLI commands.
+- **Unauthenticated Operator Dashboard:** The `/dashboard` view relies on the caller supplying an authorized API key with `leads:read` scope; there is no separate operator authentication, user session management, or Role-Based Access Control (RBAC).
+- **Synchronous Ingestion Processing:** Webhook turns are processed within standard asynchronous request handlers without a persistent message broker (e.g., Redis Streams, RabbitMQ, Kafka). Under massive broadcast campaign spikes, upstream webhook throttling or queuing is recommended to prevent connection pool exhaustion.
+- **LLM Provider Latency:** Turns requiring semantic slot extraction perform an outbound HTTP call to OpenAI (~1-2 seconds). While database connections and locks are explicitly released during this call, total turn latency is constrained by the external provider.
+- **PostgreSQL Catalog Scaling with Schema-per-Tenant:** Schema-per-tenant provides robust tenant isolation and simple retention management, but PostgreSQL catalogs experience performance degradation when scaling past several hundred schemas on a single instance.
 
 ---
 
