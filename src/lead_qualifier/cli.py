@@ -59,14 +59,23 @@ def generate_api_key(
 
 def run_server() -> None:
     """Run the FastAPI application server using uvicorn."""
+    # Incompatibilidade do psycopg async com o ProactorEventLoop padrao no Windows requer SelectorEventLoop
+    if sys.platform == "win32":
+        import asyncio
+
+        # Define a politica SelectorEventLoop para permitir operacoes assincronas com psycopg
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     settings = Settings()
-    # On Windows, psycopg async requires SelectorEventLoop instead of ProactorEventLoop
+    # No Windows, instrui o uvicorn a nao sobrescrever a politica de loop configurada acima
     loop_arg = "none" if sys.platform == "win32" else "auto"
+    # No Windows, o reloader do uvicorn spawna subprocesso que reverte o event loop para Proactor
+    reload_flag = settings.api_env == "development" and sys.platform != "win32"
     uvicorn.run(
         "lead_qualifier.api.main:app",
         host=settings.api_host,
         port=settings.api_port,
-        reload=settings.api_env == "development",
+        reload=reload_flag,
         loop=loop_arg,
     )
 
