@@ -108,12 +108,12 @@ def test_scoring_service_halts_immediately_on_knockout() -> None:
     """Verify that scoring evaluation stops immediately when a knockout rule is encountered."""
     strategies = [
         KnockoutStrategy(field="role", knockout_value="estudante"),
-        ExactMatchStrategy(field="revenue", target_value="above_10m", points=100),
+        ExactMatchStrategy(field="revenue_tier", target_value="above_10m", points=100),
     ]
     service = ScoringService(strategies, qualification_threshold=50)
 
     # Lead has both the restricted role and the high revenue
-    lead_data = {"role": "estudante", "revenue": "above_10m"}
+    lead_data = {"role": "estudante", "revenue_tier": "above_10m"}
     result: ScoringResult = service.calculate_score(lead_data)
 
     assert result.is_knocked_out is True
@@ -127,7 +127,7 @@ def test_scoring_service_threshold_evaluation() -> None:
     """Verify qualification verdict according to configured threshold."""
     strategies = [
         ExactMatchStrategy(field="role", target_value="CEO", points=40),
-        ExactMatchStrategy(field="revenue", target_value="above_10m", points=20),
+        ExactMatchStrategy(field="revenue_tier", target_value="above_10m", points=20),
     ]
     service = ScoringService(strategies, qualification_threshold=50)
 
@@ -138,7 +138,7 @@ def test_scoring_service_threshold_evaluation() -> None:
     assert res_below.is_knocked_out is False
 
     # 60 points -> meets threshold
-    res_above = service.calculate_score({"role": "CEO", "revenue": "above_10m"})
+    res_above = service.calculate_score({"role": "CEO", "revenue_tier": "above_10m"})
     assert res_above.final_score == 60
     assert res_above.is_qualified is True
     assert res_above.is_knocked_out is False
@@ -164,7 +164,7 @@ def test_build_strategies_from_rules_valid() -> None:
     rules: list[dict[str, Any]] = [
         {"type": "knockout", "field": "role", "value": "estudante"},
         {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
-        {"type": "exact_match", "field": "revenue", "target_value": "above_10m", "points": 50},
+        {"type": "exact_match", "field": "revenue_tier", "target_value": "above_10m", "points": 50},
     ]
 
     strategies = build_strategies_from_rules(rules)
@@ -268,16 +268,16 @@ async def test_state_machine_question_order_respects_required_slots_list() -> No
     """Verify that the state machine prompts for missing slots strictly in the declared order."""
     rules: list[dict[str, Any]] = [
         {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
-        {"type": "exact_match", "field": "revenue", "value": "5m", "points": 50},
+        {"type": "exact_match", "field": "revenue_tier", "value": "2m_to_10m", "points": 50},
     ]
 
     llm = FakeLLMAdapter(extracted_slots=LeadSlots())
 
-    # Order 1: revenue declared before role -> prompts for revenue first
+    # Order 1: revenue_tier declared before role -> prompts for revenue first
     rule_set_rev_first = {
         "id": "11111111-1111-1111-1111-111111111111",
         "rules": rules,
-        "required_slots": ["revenue", "role"],
+        "required_slots": ["revenue_tier", "role"],
         "qualification_threshold": 50,
     }
     repo_rev_first = FakeConversationRepository(active_rule_set=rule_set_rev_first)
@@ -290,11 +290,11 @@ async def test_state_machine_question_order_respects_required_slots_list() -> No
     res1 = await service_rev_first.process_turn(req1)
     assert res1.current_state == ConversationState.AWAITING_REVENUE
 
-    # Order 2: role declared before revenue -> prompts for role first
+    # Order 2: role declared before revenue_tier -> prompts for role first
     rule_set_role_first = {
         "id": "11111111-1111-1111-1111-111111111111",
         "rules": rules,
-        "required_slots": ["role", "revenue"],
+        "required_slots": ["role", "revenue_tier"],
         "qualification_threshold": 50,
     }
     repo_role_first = FakeConversationRepository(active_rule_set=rule_set_role_first)

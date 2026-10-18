@@ -39,7 +39,11 @@ class OpenAIAdapter:
                         "role": "system",
                         "content": (
                             "You are a professional B2B lead qualification assistant. "
-                            "Analyze the conversation rigorously and extract factual qualification slots."
+                            "Analyze the conversation rigorously and extract factual qualification slots. "
+                            "Map user revenue mentions (e.g., 'faturamos 5 milhões por ano', 'abaixo de 500k', '10M+') "
+                            "strictly to the normalized revenue_tier enum values: "
+                            "'below_500k', '500k_to_2m', '2m_to_10m', or 'above_10m'. "
+                            "If a slot is not explicitly mentioned by the lead, leave it null."
                         ),
                     },
                     {

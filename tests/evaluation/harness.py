@@ -26,7 +26,7 @@ async def run_evaluation() -> None:
 
     strategies = [
         KnockoutStrategy(field="role", knockout_value="estudante"),
-        ExactMatchStrategy(field="revenue", target_value="5 milhoes ao ano", points=50),
+        ExactMatchStrategy(field="revenue_tier", target_value="2m_to_10m", points=50),
         ExactMatchStrategy(field="role", target_value="CEO", points=50),
     ]
     scoring_service = ScoringService(strategies)

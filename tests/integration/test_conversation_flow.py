@@ -13,7 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.api.dependencies import create_tenant_uow_factory
 from lead_qualifier.core.database import tenant_transaction
-from lead_qualifier.core.enums import ConversationState
+from lead_qualifier.core.enums import ConversationState, RevenueTier
 from lead_qualifier.core.messages import (
     ASK_REVENUE_REPLY,
     QUALIFIED_REPLY,
@@ -67,9 +67,11 @@ async def test_multi_turn_conversation_accumulates_slots_and_qualifies(
         state1, slots1 = await repo.get_or_create_conversation_state(phone)
         assert state1 == ConversationState.AWAITING_REVENUE
         assert slots1.get("role") == "CEO"
-        assert "revenue" not in slots1
+        assert "revenue_tier" not in slots1
 
-    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(revenue="5 milhoes ao ano"))  # type: ignore[method-assign]
+    mock_adapter.extract_slots = AsyncMock(  # type: ignore[method-assign]
+        return_value=LeadSlots(revenue_tier=RevenueTier.FROM_2M_TO_10M)
+    )
 
     turn2_request = TurnRequest(
         message_id=f"msg_turn2_{uuid.uuid4()}",
@@ -89,7 +91,7 @@ async def test_multi_turn_conversation_accumulates_slots_and_qualifies(
         state2, slots2 = await repo.get_or_create_conversation_state(phone)
         assert state2 == ConversationState.QUALIFIED
         assert slots2.get("role") == "CEO"
-        assert slots2.get("revenue") == "5 milhoes ao ano"
+        assert slots2.get("revenue_tier") == "2m_to_10m"
 
 
 async def test_duplicate_message_id_atomic_idempotency_via_service(
@@ -172,7 +174,7 @@ async def test_llm_call_does_not_hold_conversation_lock(
     async def slow_extract_slots(_message: str) -> LeadSlots:
         llm_thinking.set()
         await llm_can_proceed.wait()
-        return LeadSlots(revenue="5 milhoes ao ano")
+        return LeadSlots(revenue_tier=RevenueTier.FROM_2M_TO_10M)
 
     mock_adapter = OpenAIAdapter(api_key="mock_key")
     mock_adapter.extract_slots = AsyncMock(side_effect=slow_extract_slots)  # type: ignore[method-assign]
@@ -256,7 +258,7 @@ async def test_connection_returned_to_pool_during_llm_call(
     async def slow_extract_slots(*_args: Any, **_kwargs: Any) -> LeadSlots:
         llm_thinking.set()
         await llm_can_proceed.wait()
-        return LeadSlots(revenue="5 milhoes ao ano")
+        return LeadSlots(revenue_tier=RevenueTier.FROM_2M_TO_10M)
 
     try:
         mock_adapter = OpenAIAdapter(api_key="mock_key")
@@ -305,11 +307,11 @@ async def test_connection_returned_to_pool_during_llm_call(
 async def test_ceo_knockout_on_revenue_disqualifies_immediately(
     db_pool: AsyncConnectionPool,
 ) -> None:
-    """Prove that knockout on revenue is evaluated even when role alone awards high score (e.g. CEO).
+    """Prove that knockout on revenue_tier is evaluated even when role alone awards high score (e.g. CEO).
 
-    Turn 1: Lead provides role="CEO" (50 pts, but revenue is still required).
+    Turn 1: Lead provides role="CEO" (50 pts, but revenue_tier is still required).
     State must transition to AWAITING_REVENUE, not QUALIFIED.
-    Turn 2: Lead provides revenue="abaixo de 50 mil" (knockout condition).
+    Turn 2: Lead provides revenue_tier="below_500k" (knockout condition).
     State must immediately transition to DISQUALIFIED, terminating dialogue.
     """
     tenant_ctx = TenantContext(UUID(TENANT_TEST), "tenant_test")
@@ -334,7 +336,9 @@ async def test_ceo_knockout_on_revenue_disqualifies_immediately(
     assert turn1_response.current_state == ConversationState.AWAITING_REVENUE
     assert turn1_response.is_finished is False
 
-    mock_adapter.extract_slots = AsyncMock(return_value=LeadSlots(revenue="abaixo de 50 mil"))  # type: ignore[method-assign]
+    mock_adapter.extract_slots = AsyncMock(  # type: ignore[method-assign]
+        return_value=LeadSlots(revenue_tier=RevenueTier.BELOW_500K)
+    )
     turn2_response = await service.process_turn(
         TurnRequest(
             message_id=f"msg_ko_turn2_{uuid.uuid4()}",

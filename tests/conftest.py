@@ -128,12 +128,12 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
                 '[
                     {"type": "knockout", "field": "role", "value": "estudante"},
                     {"type": "knockout", "field": "role", "value": "estagiario"},
-                    {"type": "knockout", "field": "revenue", "value": "abaixo de 50 mil"},
+                    {"type": "knockout", "field": "revenue_tier", "value": "below_500k"},
                     {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
                     {"type": "exact_match", "field": "role", "value": "Diretor", "points": 40},
-                    {"type": "exact_match", "field": "revenue", "value": "5 milhoes ao ano", "points": 50}
+                    {"type": "exact_match", "field": "revenue_tier", "value": "2m_to_10m", "points": 50}
                 ]'::jsonb,
-                ARRAY['role', 'revenue']::text[],
+                ARRAY['role', 'revenue_tier']::text[],
                 50, true
             ) ON CONFLICT (tenant_id, version) DO UPDATE SET
                 rules = EXCLUDED.rules,
