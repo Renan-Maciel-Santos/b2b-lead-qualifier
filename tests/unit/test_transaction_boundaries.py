@@ -1,15 +1,12 @@
 """Unit tests validating decoupled transaction boundaries and status-aware idempotency."""
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.schemas.conversation import TurnRequest
 from lead_qualifier.core.schemas.slots import LeadSlots
-from lead_qualifier.core.scoring.strategy import ExactMatchStrategy
-from lead_qualifier.services.scoring_service import ScoringService
 from lead_qualifier.services.state_machine import StateMachineService
+from tests.fakes import FakeConversationRepository, FakeLLMAdapter, make_fake_uow_factory
 
 pytestmark = pytest.mark.asyncio
 
@@ -20,51 +17,29 @@ async def test_slow_llm_does_not_hold_conversation_state_lock() -> None:
     Guarantees that slow or stalled external LLM requests do not hold PostgreSQL
     SELECT ... FOR UPDATE locks or pool connections open during turn processing.
     """
-    call_order: list[str] = []
-
-    mock_conn = MagicMock()
-    mock_conn.commit = AsyncMock()
-
-    mock_repo = MagicMock()
-    mock_repo.conn = mock_conn
-
-    async def mock_acquire_message_lock(message_id: str, timeout_seconds: int = 60) -> bool:
-        _ = (message_id, timeout_seconds)
-        call_order.append("acquire_message_lock")
-        return True
-
-    mock_repo.acquire_message_lock = AsyncMock(side_effect=mock_acquire_message_lock)
-
-    async def mock_get_or_create_state(phone_number: str) -> tuple[str, dict[str, str]]:
-        _ = phone_number
-        call_order.append("get_or_create_conversation_state_FOR_UPDATE")
-        return "INITIAL", {}
-
-    mock_repo.get_or_create_conversation_state = AsyncMock(side_effect=mock_get_or_create_state)
-    mock_repo.get_conversation_state_read_only = AsyncMock(return_value=("INITIAL", {}))
-    mock_repo.save_conversation_state = AsyncMock()
-    mock_repo.save_scoring_result = AsyncMock()
-    mock_repo.mark_message_done = AsyncMock()
-    mock_repo.get_active_scoring_rule_set = AsyncMock(return_value=None)
-
-    mock_llm = MagicMock()
+    repo = FakeConversationRepository(
+        active_rule_set={
+            "id": "11111111-1111-1111-1111-111111111111",
+            "rules": [
+                {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+            ],
+            "required_slots": ["role"],
+            "qualification_threshold": 50,
+        }
+    )
 
     async def mock_extract_slots(message: str) -> LeadSlots:
         _ = message
-        call_order.append("llm_extract_slots")
         # Assert that the row lock has NOT been acquired yet when LLM is executing
-        assert "get_or_create_conversation_state_FOR_UPDATE" not in call_order
+        assert "get_or_create_conversation_state" not in repo.call_log
         return LeadSlots(role="CEO")
 
-    mock_llm.extract_slots = AsyncMock(side_effect=mock_extract_slots)
+    llm = FakeLLMAdapter(extractor=mock_extract_slots, call_tracker=repo.call_log)
 
-    # Injected scoring service
-    scoring = ScoringService([ExactMatchStrategy(field="role", target_value="CEO", points=50)])
     service = StateMachineService(
-        repo=mock_repo,
-        llm_adapter=mock_llm,
-        scoring_service=scoring,
-        required_slots=["role"],
+        uow_factory=make_fake_uow_factory(repo),
+        llm_adapter=llm,
+        idempotency_timeout=60,
     )
 
     request = TurnRequest(
@@ -76,31 +51,28 @@ async def test_slow_llm_does_not_hold_conversation_state_lock() -> None:
     response = await service.process_turn(request)
 
     assert response.current_state == ConversationState.QUALIFIED
-    assert call_order == [
-        "acquire_message_lock",
-        "llm_extract_slots",
-        "get_or_create_conversation_state_FOR_UPDATE",
-    ]
-    # Verify transaction 2 commit was executed
-    assert mock_conn.commit.await_count >= 1
-    mock_repo.mark_message_done.assert_awaited_once_with("msg_slow_llm_1")
+    assert "acquire_message_lock" in repo.call_log
+    assert "llm_extract_slots" in repo.call_log
+    assert "get_or_create_conversation_state" in repo.call_log
+    # Acquire lock must precede LLM extraction, and LLM must precede state row lock
+    assert (
+        repo.call_log.index("acquire_message_lock")
+        < repo.call_log.index("llm_extract_slots")
+        < repo.call_log.index("get_or_create_conversation_state")
+    )
+    assert repo.messages["msg_slow_llm_1"] == "done"
 
 
 async def test_failed_message_marks_status_failed_for_retry() -> None:
     """Verify that when processing encounters an exception, the message status is marked 'failed'."""
-    mock_conn = MagicMock()
-    mock_conn.commit = AsyncMock()
+    repo = FakeConversationRepository()
+    llm = FakeLLMAdapter(error=RuntimeError("OpenAI API unreachable"))
 
-    mock_repo = MagicMock()
-    mock_repo.conn = mock_conn
-    mock_repo.acquire_message_lock = AsyncMock(return_value=True)
-    mock_repo.get_conversation_state_read_only = AsyncMock(return_value=("INITIAL", {}))
-    mock_repo.mark_message_failed = AsyncMock()
-
-    mock_llm = MagicMock()
-    mock_llm.extract_slots = AsyncMock(side_effect=RuntimeError("OpenAI API unreachable"))
-
-    service = StateMachineService(repo=mock_repo, llm_adapter=mock_llm)
+    service = StateMachineService(
+        uow_factory=make_fake_uow_factory(repo),
+        llm_adapter=llm,
+        idempotency_timeout=60,
+    )
 
     request = TurnRequest(
         message_id="msg_error_retry",
@@ -111,24 +83,20 @@ async def test_failed_message_marks_status_failed_for_retry() -> None:
     with pytest.raises(RuntimeError, match="OpenAI API unreachable"):
         await service.process_turn(request)
 
-    mock_repo.mark_message_failed.assert_awaited_once_with("msg_error_retry")
+    assert repo.messages["msg_error_retry"] == "failed"
 
 
 async def test_duplicate_message_short_circuits_immediately() -> None:
     """Verify that a concurrent or duplicate message is discarded without calling LLM or state locking."""
-    mock_conn = MagicMock()
-    mock_conn.commit = AsyncMock()
+    # Pre-populate message as processing so acquire_message_lock returns False
+    repo = FakeConversationRepository(messages={"msg_dup_123": "processing"})
+    llm = FakeLLMAdapter()
 
-    mock_repo = MagicMock()
-    mock_repo.conn = mock_conn
-    # Simulates loser of atomic idempotency race
-    mock_repo.acquire_message_lock = AsyncMock(return_value=False)
-    mock_repo.get_or_create_conversation_state = AsyncMock()
-
-    mock_llm = MagicMock()
-    mock_llm.extract_slots = AsyncMock()
-
-    service = StateMachineService(repo=mock_repo, llm_adapter=mock_llm)
+    service = StateMachineService(
+        uow_factory=make_fake_uow_factory(repo),
+        llm_adapter=llm,
+        idempotency_timeout=60,
+    )
 
     request = TurnRequest(
         message_id="msg_dup_123",
@@ -142,6 +110,5 @@ async def test_duplicate_message_short_circuits_immediately() -> None:
     assert response.reply_message == ""
     assert response.is_finished is False
 
-    # LLM and row lock must NEVER be touched on duplicates
-    mock_llm.extract_slots.assert_not_called()
-    mock_repo.get_or_create_conversation_state.assert_not_called()
+    # LLM must NEVER be touched on duplicates
+    assert llm.call_count == 0

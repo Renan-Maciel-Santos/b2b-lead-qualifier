@@ -62,13 +62,13 @@ async def get_db_connection(request: Request) -> AsyncIterator[AsyncConnection]:
 
 @asynccontextmanager
 async def tenant_transaction(
-    pool_or_conn: AsyncConnectionPool | AsyncConnection,
+    pool: AsyncConnectionPool,
     tenant_ctx: TenantContext,
 ) -> AsyncIterator[AsyncConnection]:
     """Execute operations inside an atomic transaction scoped strictly to a tenant.
 
     Lifecycle:
-    1. Acquires a connection from pool (or uses the provided connection).
+    1. Acquires a connection from pool.
     2. Opens a transaction block.
     3. Executes set_config('app.current_tenant', ..., true) and SET LOCAL search_path.
     4. Yields connection to caller.
@@ -76,36 +76,21 @@ async def tenant_transaction(
     6. Returns connection to pool.
 
     Args:
-        pool_or_conn: Connection pool or direct connection.
+        pool: Asynchronous PostgreSQL connection pool.
         tenant_ctx: Immutable tenant context (tenant_id and schema_name).
 
     Yields:
         AsyncConnection: Connection within an active, tenant-scoped transaction.
     """
-    if isinstance(pool_or_conn, AsyncConnectionPool):
-        async with pool_or_conn.connection() as conn, conn.transaction():
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT set_config('app.current_tenant', %s, true)",
-                    (str(tenant_ctx.tenant_id),),
+    async with pool.connection() as conn, conn.transaction():
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT set_config('app.current_tenant', %s, true)",
+                (str(tenant_ctx.tenant_id),),
+            )
+            await cur.execute(
+                sql.SQL("SET LOCAL search_path TO {}, public").format(
+                    sql.Identifier(tenant_ctx.schema_name)
                 )
-                await cur.execute(
-                    sql.SQL("SET LOCAL search_path TO {}, public").format(
-                        sql.Identifier(tenant_ctx.schema_name)
-                    )
-                )
-            yield conn
-    else:
-        conn = pool_or_conn
-        async with conn.transaction():
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT set_config('app.current_tenant', %s, true)",
-                    (str(tenant_ctx.tenant_id),),
-                )
-                await cur.execute(
-                    sql.SQL("SET LOCAL search_path TO {}, public").format(
-                        sql.Identifier(tenant_ctx.schema_name)
-                    )
-                )
-            yield conn
+            )
+        yield conn

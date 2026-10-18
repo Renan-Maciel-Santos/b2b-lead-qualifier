@@ -1,14 +1,8 @@
 """Conversational state machine service orchestrating dialogue, LLM extraction, and scoring."""
 
-import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 
-from psycopg import AsyncConnection
-from psycopg_pool import AsyncConnectionPool
-
-from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.enums import ConversationState
 from lead_qualifier.core.exceptions import ActiveRuleSetNotFoundError
 from lead_qualifier.core.logger import logger
@@ -23,8 +17,7 @@ from lead_qualifier.core.messages import (
 )
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
 from lead_qualifier.core.scoring.strategy import parse_rule_set_config
-from lead_qualifier.core.tenant import TenantContext
-from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
+from lead_qualifier.domain.ports import LLMAdapterPort, UnitOfWorkFactory
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from lead_qualifier.services.scoring_service import ScoringService
 
@@ -34,53 +27,24 @@ class StateMachineService:
 
     def __init__(
         self,
-        repo: ConversationRepository | None = None,
-        llm_adapter: OpenAIAdapter | None = None,
-        scoring_service: ScoringService | None = None,
-        idempotency_timeout_seconds: int = 60,
-        pool: AsyncConnectionPool | AsyncConnection | None = None,
-        tenant_ctx: TenantContext | None = None,
-        required_slots: list[str] | None = None,
+        uow_factory: UnitOfWorkFactory,
+        llm_adapter: LLMAdapterPort,
+        idempotency_timeout: int,
     ) -> None:
-        """Initialize state machine service with repository or unit of work dependencies.
+        """Initialize state machine service with required dependencies.
 
         Args:
-            repo: Optional ConversationRepository instance (for direct or mocked usage).
-            llm_adapter: Optional OpenAI adapter instance (created on demand if omitted).
-            scoring_service: Optional pre-configured scoring service (overrides dynamic loading).
-            idempotency_timeout_seconds: Timeout after which stalled processing messages can be reclaimed.
-            pool: Optional connection pool or direct connection for transaction-scoped unit of work.
-            tenant_ctx: Optional immutable TenantContext.
-            required_slots: Optional list of mandatory slots before qualification can complete.
+            uow_factory: Factory returning a tenant-scoped unit of work context manager.
+            llm_adapter: Adapter implementing slot extraction protocol.
+            idempotency_timeout: Timeout in seconds for reclaiming stalled in-progress messages.
         """
-        self.repo = repo
-        self.pool = pool
-        self.tenant_ctx = tenant_ctx
-        self.llm_adapter = llm_adapter or OpenAIAdapter()
-        self.scoring_service = scoring_service
-        self.idempotency_timeout_seconds = idempotency_timeout_seconds
-        self.required_slots = required_slots
+        self.uow_factory = uow_factory
+        self.llm_adapter = llm_adapter
+        self.idempotency_timeout = idempotency_timeout
 
-    @asynccontextmanager
-    async def _uow(self) -> AsyncIterator[ConversationRepository]:
-        """Provide a tenant-scoped unit of work yielding a ConversationRepository.
-
-        If a connection pool or direct connection with tenant_ctx is configured,
-        executes inside an atomic tenant_transaction. Otherwise, falls back to
-        the injected repository instance (e.g. in unit tests with mocks).
-        """
-        if self.pool is not None and self.tenant_ctx is not None:
-            async with tenant_transaction(self.pool, self.tenant_ctx) as conn:
-                yield ConversationRepository(conn)
-        elif self.repo is not None:
-            yield self.repo
-            # Trigger mock commit if present for unit test call verification
-            if hasattr(self.repo, "conn") and hasattr(self.repo.conn, "commit"):
-                res = self.repo.conn.commit()
-                if asyncio.iscoroutine(res):
-                    await res
-        else:
-            raise RuntimeError("StateMachineService requires either (pool, tenant_ctx) or repo.")
+    def _uow(self) -> AbstractAsyncContextManager[ConversationRepository]:
+        """Provide a tenant-scoped unit of work yielding a ConversationRepository."""
+        return self.uow_factory()
 
     async def _resolve_scoring_engine(
         self,
@@ -98,29 +62,17 @@ class StateMachineService:
             tuple[ScoringService, str, list[str]]: Engine, rule set ID, and mandatory slots.
         """
         rule_set = await repo.get_active_scoring_rule_set()
+        if rule_set is None:
+            logger.error("No active scoring_rule_set configured for tenant in database.")
+            raise ActiveRuleSetNotFoundError("No active scoring rule set found for tenant.")
 
-        if self.scoring_service is not None:
-            rule_set_id = str(rule_set["id"]) if rule_set else "injected"
-            if self.required_slots is not None:
-                req_slots = self.required_slots
-            elif rule_set is not None:
-                _, req_slots = parse_rule_set_config(rule_set)
-            else:
-                req_slots = ["role", "revenue"]
-            return self.scoring_service, rule_set_id, req_slots
-
-        if rule_set is not None:
-            strategies, required_slots = parse_rule_set_config(rule_set)
-            req_slots = self.required_slots if self.required_slots is not None else required_slots
-            threshold = int(rule_set.get("qualification_threshold", 50))
-            return (
-                ScoringService(strategies, qualification_threshold=threshold),
-                str(rule_set["id"]),
-                req_slots,
-            )
-
-        logger.error("No active scoring_rule_set configured for tenant in database.")
-        raise ActiveRuleSetNotFoundError("No active scoring rule set found for tenant.")
+        strategies, required_slots = parse_rule_set_config(rule_set)
+        threshold = int(rule_set.get("qualification_threshold", 50))
+        return (
+            ScoringService(strategies, qualification_threshold=threshold),
+            str(rule_set["id"]),
+            required_slots,
+        )
 
     async def process_turn(self, request: TurnRequest) -> TurnResponse:
         """Process an inbound conversation turn with decoupled transaction boundaries.
@@ -148,7 +100,7 @@ class StateMachineService:
         async with self._uow() as repo:
             acquired = await repo.acquire_message_lock(
                 request.message_id,
-                timeout_seconds=self.idempotency_timeout_seconds,
+                timeout_seconds=self.idempotency_timeout,
             )
             if not acquired:
                 logger.warning(

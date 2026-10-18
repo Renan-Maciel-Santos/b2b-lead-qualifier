@@ -50,16 +50,24 @@ class TestTenantUnitOfWork:
             tenant_id=UUID(str(tenant_id)),
             schema_name=schema_name,
         )
-        self._cm = tenant_transaction(pool_or_conn, self.tenant_ctx)
+        self._cm = (
+            tenant_transaction(pool_or_conn, self.tenant_ctx)
+            if isinstance(pool_or_conn, AsyncConnectionPool)
+            else None
+        )
         self._yielded_conn: AsyncConnection | None = None
 
     async def __aenter__(self) -> AsyncConnection:
-        conn = await self._cm.__aenter__()
-        self._yielded_conn = conn
-        return conn
+        if self._cm is not None:
+            conn = await self._cm.__aenter__()
+            self._yielded_conn = conn
+            return conn
+        raise TypeError("tenant_transaction context manager requires an AsyncConnectionPool.")
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
-        return await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+        if self._cm is not None:
+            return await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+        return None
 
     def __await__(self) -> Any:
         # Backward-compatibility for direct calls awaiting tenant context setup

@@ -14,6 +14,7 @@ from lead_qualifier.core.database import create_connection_pool
 from lead_qualifier.core.exceptions import global_exception_handler
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.settings import Settings
+from lead_qualifier.integrations.llm.openai_adapter import OpenAIAdapter
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application startup and shutdown lifecycle.
 
     Initializes the database connection pool in app.state, validates connectivity,
-    and cleanly releases resources upon shutdown.
+    initializes the LLM adapter, and cleanly releases resources upon shutdown.
     """
     settings = Settings()
     pool = create_connection_pool(settings)
@@ -33,6 +34,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.settings = settings
     app.state.db_pool = pool
+    app.state.llm_adapter = OpenAIAdapter(
+        api_key=settings.openai_api_key.get_secret_value(),
+    )
 
     yield
 

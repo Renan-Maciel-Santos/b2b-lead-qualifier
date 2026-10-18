@@ -3,14 +3,12 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from psycopg_pool import AsyncConnectionPool
 
+from lead_qualifier.api.dependencies import get_webhook_controller
 from lead_qualifier.controllers.webhook_controller import WebhookController
-from lead_qualifier.core.database import get_db_pool
 from lead_qualifier.core.logger import logger
 from lead_qualifier.core.masking import mask_phone_number
 from lead_qualifier.core.schemas.conversation import TurnRequest, TurnResponse
-from lead_qualifier.core.tenant import TenantContext, require_scope
 
 router = APIRouter(tags=["Conversations"])
 
@@ -19,21 +17,18 @@ router = APIRouter(tags=["Conversations"])
 @router.post("/v1/conversa/turno", response_model=TurnResponse, include_in_schema=False)
 async def conversation_turn(
     request: TurnRequest,
-    pool: Annotated[AsyncConnectionPool, Depends(get_db_pool)],
-    tenant_ctx: Annotated[TenantContext, Depends(require_scope("webhook:write"))],
+    controller: Annotated[WebhookController, Depends(get_webhook_controller)],
 ) -> TurnResponse:
     """Process an inbound conversation message turn with idempotency and lead scoring.
 
-    Tenant context is resolved strictly from the Bearer API key in the Authorization header.
+    Tenant context and dependencies are composed via the composition root.
 
     Args:
         request: Validated turn payload containing user message and sender phone.
-        pool: Injected shared application database pool.
-        tenant_ctx: Injected immutable tenant security context.
+        controller: Injected WebhookController instance.
 
     Returns:
         TurnResponse: Formatted reply message, current conversation state, and completion flag.
     """
     logger.info(f"Webhook received for phone={mask_phone_number(request.phone_number)}")
-    controller = WebhookController(pool=pool, tenant_ctx=tenant_ctx)
     return await controller.handle_turn(request)
