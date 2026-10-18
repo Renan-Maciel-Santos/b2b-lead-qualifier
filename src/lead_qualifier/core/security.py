@@ -2,10 +2,11 @@
 
 import hashlib
 import re
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from psycopg.errors import Error as PsycopgError
 from psycopg_pool import AsyncConnectionPool
 
@@ -40,7 +41,7 @@ async def get_tenant_context(
         authorization: Inbound HTTP Authorization header.
 
     Returns:
-        TenantContext: Strongly-typed, immutable tenant identity and schema.
+        TenantContext: Strongly-typed, immutable tenant identity, schema, and granted scopes.
 
     Raises:
         HTTPException(401): If API key is missing, malformed, invalid, or revoked.
@@ -70,7 +71,7 @@ async def get_tenant_context(
             conn.cursor() as cur,
         ):
             await cur.execute(
-                "SELECT tenant_id, schema_name FROM core.resolve_tenant_by_api_key(%s)",
+                "SELECT tenant_id, schema_name, scopes FROM core.resolve_tenant_by_api_key(%s)",
                 (key_hash,),
             )
             row = await cur.fetchone()
@@ -80,14 +81,18 @@ async def get_tenant_context(
                     detail="Invalid or missing API key.",
                 )
 
-            tenant_id, schema_name = row[0], row[1]
+            tenant_id, schema_name, scopes = row[0], row[1], row[2]
             if not re.match(r"^tenant_[a-z0-9_]{1,40}$", schema_name):
                 raise HTTPException(
                     status_code=500,
                     detail="Invalid tenant schema identifier.",
                 )
 
-            return TenantContext(tenant_id=UUID(str(tenant_id)), schema_name=schema_name)
+            return TenantContext(
+                tenant_id=UUID(str(tenant_id)),
+                schema_name=schema_name,
+                scopes=frozenset(scopes or []),
+            )
 
     except HTTPException:
         raise
@@ -101,3 +106,31 @@ async def get_tenant_context(
             status_code=503,
             detail="Service temporarily unavailable.",
         ) from err
+
+
+def require_scope(
+    required_scope: str,
+) -> Callable[..., Coroutine[Any, Any, TenantContext]]:
+    """Create a FastAPI dependency that verifies whether the authenticated tenant has a specific scope.
+
+    Args:
+        required_scope: Required permission scope identifier (e.g., 'webhook:write', 'leads:read').
+
+    Returns:
+        Callable dependency returning the validated TenantContext.
+
+    Raises:
+        HTTPException(403): If the authenticated tenant context lacks the required scope.
+    """
+
+    async def _scope_checker(
+        tenant_ctx: Annotated[TenantContext, Depends(get_tenant_context)],
+    ) -> TenantContext:
+        if required_scope not in tenant_ctx.scopes:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden",
+            )
+        return tenant_ctx
+
+    return _scope_checker

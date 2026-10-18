@@ -15,7 +15,9 @@ from lead_qualifier.core.tenant import TenantContext
 from lead_qualifier.repositories.conversation_repo import ConversationRepository
 from tests.conftest import (
     API_KEY_INVASOR,
+    API_KEY_READONLY,
     API_KEY_TEST,
+    API_KEY_WEBHOOK_ONLY,
     TENANT_TEST,
     set_test_tenant_context,
 )
@@ -165,12 +167,13 @@ async def test_app_user_denied_direct_select_on_core_api_keys(
     key_hash = hashlib.sha256(API_KEY_TEST.encode("utf-8")).hexdigest()
     async with db_app.cursor() as cur:
         await cur.execute(
-            "SELECT tenant_id, schema_name FROM core.resolve_tenant_by_api_key(%s)",
+            "SELECT tenant_id, schema_name, scopes FROM core.resolve_tenant_by_api_key(%s)",
             (key_hash,),
         )
         row = await cur.fetchone()
         assert row is not None
         assert row[1] == "tenant_test"
+        assert set(row[2]) == {"webhook:write", "leads:read"}
 
 
 async def test_no_tenant_context_leakage_across_pool_checkouts(
@@ -225,3 +228,28 @@ async def test_no_tenant_context_leakage_across_pool_checkouts(
             assert guc_val is None or guc_val[0] is None or guc_val[0] == ""
     finally:
         await pool_single.close()
+
+
+async def test_scope_enforcement_webhook_requires_webhook_write(
+    api_client: AsyncClient,
+) -> None:
+    """Verify that an API key with only leads:read receives HTTP 403 on conversation turn webhook."""
+    headers = {"Authorization": f"Bearer {API_KEY_READONLY}"}
+    payload = {
+        "message_id": "msg_scope_001",
+        "phone_number": "+5511999990001",
+        "user_message": "Ola",
+    }
+    response = await api_client.post("/v1/conversations/turns", json=payload, headers=headers)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Forbidden"
+
+
+async def test_scope_enforcement_leads_requires_leads_read(
+    api_client: AsyncClient,
+) -> None:
+    """Verify that an API key with only webhook:write receives HTTP 403 on GET /v1/leads."""
+    headers = {"Authorization": f"Bearer {API_KEY_WEBHOOK_ONLY}"}
+    response = await api_client.get("/v1/leads", headers=headers)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Forbidden"

@@ -67,6 +67,8 @@ CREATE TABLE core.api_keys (
     tenant_id UUID NOT NULL REFERENCES core.tenants(id) ON DELETE CASCADE,
     key_hash VARCHAR(64) NOT NULL UNIQUE,
     name VARCHAR(100) NOT NULL,
+    scopes TEXT[] NOT NULL
+        CHECK (scopes <@ ARRAY['webhook:write', 'leads:read']::text[] AND cardinality(scopes) > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     revoked_at TIMESTAMPTZ NULL
 );
@@ -77,14 +79,14 @@ CREATE INDEX idx_api_keys_lookup ON core.api_keys (key_hash) WHERE revoked_at IS
 -- Privilegio minimo: app_user nao consulta core.api_keys diretamente
 REVOKE ALL ON core.api_keys FROM app_user;
 
--- Funcao SECURITY DEFINER para resolver tenant_id e schema_name a partir do hash da API key
+-- Funcao SECURITY DEFINER para resolver tenant_id, schema_name e scopes a partir do hash da API key
 CREATE FUNCTION core.resolve_tenant_by_api_key(p_key_hash varchar(64))
-RETURNS TABLE (tenant_id uuid, schema_name text)
+RETURNS TABLE (tenant_id uuid, schema_name text, scopes text[])
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = core, pg_catalog
 AS $$
-    SELECT k.tenant_id, t.schema_name
+    SELECT k.tenant_id, t.schema_name, k.scopes
     FROM core.api_keys k
     JOIN core.tenants t ON t.id = k.tenant_id
     WHERE k.key_hash = p_key_hash

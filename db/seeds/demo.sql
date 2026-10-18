@@ -35,10 +35,11 @@ ON CONFLICT (tenant_id, version) DO UPDATE SET
     is_active = EXCLUDED.is_active;
 
 -- Demo API key (raw: b2b_live_demo_acme_111111111111111111111111)
-INSERT INTO core.api_keys (tenant_id, key_hash, name)
+INSERT INTO core.api_keys (tenant_id, key_hash, name, scopes)
 VALUES (
     '11111111-1111-1111-1111-111111111111',
     'c48f33e192081d5ac00cfb904661389f1ca84c35360ba4d21a003f8dd23aa72c',
-    'Acme Demo Default Key'
+    'Acme Demo Default Key',
+    ARRAY['webhook:write', 'leads:read']::text[]
 )
 ON CONFLICT (key_hash) DO NOTHING;
