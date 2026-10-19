@@ -115,6 +115,12 @@ async def test_cross_tenant_isolation_via_api_key(
     leads_a = response_a.json()["leads"]
     assert any(lead["phone_number"] == "+5511988887777" for lead in leads_a)
 
+    target_lead = next(lead for lead in leads_a if lead["phone_number"] == "+5511988887777")
+    assert isinstance(target_lead["audit_trail"], list)
+    assert target_lead["audit_trail"] == ["Test qualification"]
+    assert isinstance(target_lead["reasons"], list)
+    assert target_lead["reasons"] == ["Test qualification"]
+
     # Request leads using Tenant B's (Attacker) key -> must NOT see Tenant A's lead
     headers_b = {"Authorization": f"Bearer {API_KEY_INVASOR}"}
     response_b = await api_client.get("/v1/leads", headers=headers_b)
@@ -131,10 +137,12 @@ async def test_dashboard_template_contains_no_innerhtml_with_lead_data(
     assert response.status_code == 200
     html = response.text
 
-    # Anti-XSS validation: table body must not contain dynamic innerHTML interpolation
+    # Anti-XSS validation: table body and audit trail must not contain dynamic innerHTML
     assert "tbody.innerHTML = ` " not in html
+    assert "innerHTML" not in html
     assert "document.createElement" in html
     assert "textContent" in html
+    assert "audit-item" in html
 
 
 async def test_get_dashboard_returns_200(api_client: AsyncClient) -> None:
