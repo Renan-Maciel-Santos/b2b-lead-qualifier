@@ -152,6 +152,11 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
             "SELECT core.provision_tenant(%s, %s, %s)",
             (TENANT_INVASOR, "Tenant Invasor", "tenant_invasor"),
         )
+        # Deactivate any residual active versions before ensuring baseline version 1 is active
+        await cur.execute(
+            "UPDATE tenant_test.scoring_rule_sets SET is_active = false WHERE tenant_id = %s",
+            (TENANT_TEST,),
+        )
         await cur.execute(
             """
             INSERT INTO tenant_test.scoring_rule_sets (

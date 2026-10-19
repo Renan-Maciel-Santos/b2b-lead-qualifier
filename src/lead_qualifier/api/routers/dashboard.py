@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from lead_qualifier.core.database import get_db_pool, tenant_transaction
+from lead_qualifier.core.scoring.strategy import ScoringReasonModel, calculate_max_possible_score
 from lead_qualifier.core.tenant import TenantContext, require_scope
 
 router = APIRouter(tags=["Dashboard"])
@@ -34,7 +35,7 @@ async def get_leads(
         tenant_ctx: Injected immutable tenant security context.
 
     Returns:
-        dict: List of evaluated lead records and metadata with structured reasons.
+        dict: List of evaluated lead records with structured reasons, score breakdown, and thresholds.
     """
     async with (
         tenant_transaction(pool, tenant_ctx) as conn,
@@ -42,20 +43,57 @@ async def get_leads(
     ):
         await cur.execute(
             """
-            SELECT id, phone_number, final_score, is_qualified, audit_trail, created_at
-            FROM scoring_results
-            ORDER BY created_at DESC
+            SELECT
+                sr.id,
+                sr.phone_number,
+                sr.final_score,
+                sr.is_qualified,
+                sr.audit_trail,
+                sr.created_at,
+                COALESCE(srs.qualification_threshold, 50) AS qualification_threshold,
+                COALESCE(srs.rules, '[]'::jsonb) AS rules
+            FROM scoring_results sr
+            LEFT JOIN scoring_rule_sets srs
+                ON srs.id = sr.rule_set_id AND srs.tenant_id = sr.tenant_id
+            ORDER BY sr.created_at DESC
             LIMIT 100
             """
         )
         leads = await cur.fetchall()
 
-        # Expose scoring reasons strictly as a list of strings, removing duplicate audit_trail column
+        # Validate structured reasons and calculate max_possible_score from the applied rule set
         for lead in leads:
-            raw_reasons = lead.pop("audit_trail", [])
-            lead["reasons"] = (
-                [str(item) for item in raw_reasons] if isinstance(raw_reasons, list) else []
+            rules = lead.pop("rules", [])
+            lead["max_possible_score"] = calculate_max_possible_score(
+                rules if isinstance(rules, list) else []
             )
+
+            raw_reasons = lead.pop("audit_trail", [])
+            validated_reasons: list[dict[str, Any]] = []
+
+            if isinstance(raw_reasons, list):
+                for item in raw_reasons:
+                    if isinstance(item, dict):
+                        try:
+                            reason_obj = ScoringReasonModel.model_validate(item)
+                            validated_reasons.append(reason_obj.model_dump())
+                        except Exception:
+                            continue
+                    elif isinstance(item, str):
+                        # Graceful handling for legacy test data
+                        validated_reasons.append(
+                            {
+                                "rule_type": "exact_match",
+                                "field": "legacy",
+                                "value": item,
+                                "points": 0,
+                            }
+                        )
+
+            lead["reasons"] = validated_reasons
+            lead["id"] = str(lead["id"])
+            if hasattr(lead["created_at"], "isoformat"):
+                lead["created_at"] = lead["created_at"].isoformat()
 
         return {"leads": leads}
 

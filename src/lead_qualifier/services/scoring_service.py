@@ -16,13 +16,13 @@ class ScoringResult:
         final_score: Accumulated qualification score.
         is_qualified: Final boolean approval verdict.
         is_knocked_out: Whether an immediate knockout rule triggered disqualification.
-        reasons: Chronological audit trail of rule justifications.
+        reasons: Chronological audit trail of structured rule evaluation objects.
     """
 
     final_score: int
     is_qualified: bool
     is_knocked_out: bool
-    reasons: list[str]
+    reasons: list[dict[str, Any]]
 
 
 class ScoringService:
@@ -54,7 +54,7 @@ class ScoringService:
             ScoringResult: Typed outcome containing final_score, is_qualified, is_knocked_out, and reasons.
         """
         total_score = 0
-        audit_trail: list[str] = []
+        audit_trail: list[dict[str, Any]] = []
         is_knocked_out = False
 
         for strategy in self.strategies:
@@ -62,13 +62,27 @@ class ScoringService:
 
             if res.is_knockout:
                 is_knocked_out = True
-                audit_trail.append(res.reason)
-                logger.warning("Lead met knockout criterion; halting rule evaluation early.")
+                detail = res.reason_detail or {
+                    "rule_type": "knockout",
+                    "field": getattr(strategy, "field", ""),
+                    "value": lead_data.get(getattr(strategy, "field", "")),
+                    "points": 0,
+                }
+                audit_trail.append(detail)
+                logger.warning(
+                    "Lead met knockout criterion; halting rule evaluation early: %s", res.reason
+                )
                 break
 
             if res.points != 0:
                 total_score += res.points
-                audit_trail.append(res.reason)
+                detail = res.reason_detail or {
+                    "rule_type": "exact_match",
+                    "field": getattr(strategy, "field", ""),
+                    "value": lead_data.get(getattr(strategy, "field", "")),
+                    "points": res.points,
+                }
+                audit_trail.append(detail)
                 logger.info("Scoring rule applied: %s", res.reason)
 
         is_qualified = not is_knocked_out and (total_score >= self.qualification_threshold)

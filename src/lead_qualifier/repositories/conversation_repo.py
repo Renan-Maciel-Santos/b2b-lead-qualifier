@@ -204,7 +204,7 @@ class ConversationRepository:
         rule_set_id: str | UUID,
         final_score: int,
         is_qualified: bool,
-        audit_trail: list[str],
+        audit_trail: list[dict[str, Any]] | list[Any],
     ) -> None:
         """Persist an immutable scoring outcome tied to the active rule set version.
 
@@ -213,7 +213,7 @@ class ConversationRepository:
             rule_set_id: UUID of the rule set version applied.
             final_score: Computed integer score.
             is_qualified: Final boolean decision.
-            audit_trail: Chronological list of rule evaluation explanations.
+            audit_trail: Chronological list of structured rule evaluation objects.
         """
         async with self.conn.cursor() as cur:
             await cur.execute(

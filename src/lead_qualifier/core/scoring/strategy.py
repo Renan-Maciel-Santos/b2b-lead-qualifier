@@ -9,6 +9,33 @@ from pydantic import BaseModel, Field, TypeAdapter, field_validator
 from lead_qualifier.core.schemas.slots import LeadSlots
 
 
+class ScoringReasonModel(BaseModel):
+    """Structured breakdown of an individual rule evaluation justification."""
+
+    rule_type: Literal["exact_match", "knockout"]
+    field: str
+    value: Any
+    points: int
+
+
+def calculate_max_possible_score(rules: list[dict[str, Any]]) -> int:
+    """Compute the theoretical maximum attainable score by summing max points across distinct fields.
+
+    Args:
+        rules: List of rule configuration dictionaries from the scoring rule set.
+
+    Returns:
+        int: Maximum possible score if the lead matches the highest-scoring value for each field.
+    """
+    field_maxes: dict[str, int] = {}
+    for r in rules:
+        field = str(r.get("field", ""))
+        points = int(r.get("points", 0))
+        if points > 0:
+            field_maxes[field] = max(field_maxes.get(field, 0), points)
+    return sum(field_maxes.values())
+
+
 @dataclass(frozen=True)
 class StrategyResult:
     """Outcome of an individual scoring strategy evaluation.
@@ -17,11 +44,13 @@ class StrategyResult:
         points: Integer delta to add to the cumulative lead score.
         reason: Explanation of the evaluation decision for the audit trail.
         is_knockout: Flag indicating whether this rule immediately disqualifies the lead.
+        reason_detail: Structured dictionary with {rule_type, field, value, points} or None.
     """
 
     points: int = 0
     reason: str = ""
     is_knockout: bool = False
+    reason_detail: dict[str, Any] | None = None
 
 
 class ScoringStrategy(ABC):
@@ -60,6 +89,12 @@ class KnockoutStrategy(ScoringStrategy):
                 points=0,
                 reason=f"Disqualified: '{self.field}' matches restricted value '{value}'",
                 is_knockout=True,
+                reason_detail={
+                    "rule_type": "knockout",
+                    "field": self.field,
+                    "value": value,
+                    "points": 0,
+                },
             )
         return StrategyResult()
 
@@ -87,6 +122,12 @@ class ExactMatchStrategy(ScoringStrategy):
                 points=self.points,
                 reason=f"Awarded {self.points} pts: '{self.field}' equals '{value}'",
                 is_knockout=False,
+                reason_detail={
+                    "rule_type": "exact_match",
+                    "field": self.field,
+                    "value": self.target_value,
+                    "points": self.points,
+                },
             )
         return StrategyResult()
 
