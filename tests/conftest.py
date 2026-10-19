@@ -7,14 +7,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
-# Windows selector loop policy is required for psycopg async event loop support on Windows
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-# Default to deterministic fake LLM provider during test runs
-os.environ.setdefault("LLM_PROVIDER", "fake")
-
 import pytest_asyncio
+from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection, sql
 from psycopg_pool import AsyncConnectionPool
@@ -23,6 +17,16 @@ from lead_qualifier.api.main import app
 from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.security import hash_api_key
 from lead_qualifier.core.tenant import TenantContext
+
+# Load environment variables from .env file for local test runs
+load_dotenv()
+
+# Windows selector loop policy is required for psycopg async event loop support on Windows
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Default to deterministic fake LLM provider during test runs
+os.environ.setdefault("LLM_PROVIDER", "fake")
 
 # Deterministic test and attacker tenant identifiers (isolated from seed's tenant_demo)
 TENANT_TEST = "33333333-3333-3333-3333-333333333333"
