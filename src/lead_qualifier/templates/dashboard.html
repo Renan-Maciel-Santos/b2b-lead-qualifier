@@ -208,8 +208,27 @@
         .audit-trail {
             font-size: 0.85rem;
             color: var(--text-muted);
-            max-width: 380px;
+            max-width: 440px;
             line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .audit-item {
+            display: block;
+            padding: 0.25rem 0.5rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 2px solid var(--accent);
+            border-radius: 0 4px 4px 0;
+            word-break: break-word;
+        }
+
+        .audit-item.empty {
+            border-left: 2px solid var(--glass-border);
+            color: var(--text-muted);
+            background: transparent;
+            font-style: italic;
         }
 
         .auth-prompt {
@@ -391,8 +410,23 @@
                     const tdAudit = document.createElement('td');
                     const auditDiv = document.createElement('div');
                     auditDiv.className = 'audit-trail';
-                    const auditTrail = Array.isArray(lead.audit_trail) ? lead.audit_trail : [];
-                    auditDiv.textContent = auditTrail.length > 0 ? auditTrail.join(' | ') : 'No rules triggered';
+                    const reasons = Array.isArray(lead.audit_trail)
+                        ? lead.audit_trail
+                        : (Array.isArray(lead.reasons) ? lead.reasons : []);
+
+                    if (reasons.length === 0) {
+                        const emptyItem = document.createElement('div');
+                        emptyItem.className = 'audit-item empty';
+                        emptyItem.textContent = 'No rules triggered';
+                        auditDiv.appendChild(emptyItem);
+                    } else {
+                        reasons.forEach(reason => {
+                            const item = document.createElement('div');
+                            item.className = 'audit-item';
+                            item.textContent = String(reason);
+                            auditDiv.appendChild(item);
+                        });
+                    }
                     tdAudit.appendChild(auditDiv);
                     tr.appendChild(tdAudit);
 
