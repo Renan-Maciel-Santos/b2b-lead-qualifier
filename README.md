@@ -12,9 +12,11 @@
 
 ## Demo
 
-Run an automated 2-turn conversation qualification and inspect the live evaluation results in the dashboard:
+Run an automated end-to-end interactive demonstration simulating three distinct business qualification scenarios and inspect the live evaluation results in the dashboard:
 
-<!-- Demo GIF placeholder (to be recorded manually) -->
+1. **Qualified Lead:** CEO role (+50 pts) and revenue tier 2M–10M (+35 pts) achieving 85 pts (>= 50 cutoff).
+2. **Not Qualified Lead (Score Deficit):** Gerente role (+25 pts) and revenue tier 500k–2M (+0 pts) achieving 25 pts (< 50 cutoff).
+3. **Disqualified Lead (Knockout):** Student role triggering an immediate fail-early knockout in turn 1 (0 pts).
 
 ### Quick Demo Run
 
@@ -30,17 +32,19 @@ powershell -File scripts/demo.ps1
 bash scripts/demo.sh
 ```
 
-The script simulates a multi-turn qualification conversation with `LLM_PROVIDER=fake`, extracts lead slots (`role: CEO`, `revenue_tier: 2m_to_10m`), evaluates scoring rules deterministically, and verifies the qualified lead on `GET /v1/leads`.
+The script evaluates scoring rules deterministically, records structured audit trails in PostgreSQL, and verifies the outcome via `GET /v1/leads`.
 
 ### Operator Dashboard
 
-The real-time dashboard visualizes qualified and disqualified leads with an itemized scoring reasons trail:
+The real-time dashboard (`/dashboard`) visualizes evaluated leads using a strict light audit ledger aesthetic, scaling score tracks dynamically by `max_possible_score` with an explicit cutoff marker and itemized audit reasons:
 
 **Desktop View:**
 ![Dashboard Desktop](docs/images/dashboard_desktop.png)
 
 **Mobile View:**
 ![Dashboard Mobile](docs/images/dashboard_mobile.png)
+
+For detailed coverage of all operational and error states (authentication prompt, invalid token, empty state), see [docs/ui-states.md](docs/ui-states.md).
 
 ---
 
