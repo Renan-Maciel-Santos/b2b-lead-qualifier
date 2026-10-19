@@ -410,9 +410,7 @@
                     const tdAudit = document.createElement('td');
                     const auditDiv = document.createElement('div');
                     auditDiv.className = 'audit-trail';
-                    const reasons = Array.isArray(lead.audit_trail)
-                        ? lead.audit_trail
-                        : (Array.isArray(lead.reasons) ? lead.reasons : []);
+                    const reasons = Array.isArray(lead.reasons) ? lead.reasons : [];
 
                     if (reasons.length === 0) {
                         const emptyItem = document.createElement('div');

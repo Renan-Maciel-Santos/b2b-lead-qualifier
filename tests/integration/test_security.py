@@ -116,8 +116,7 @@ async def test_cross_tenant_isolation_via_api_key(
     assert any(lead["phone_number"] == "+5511988887777" for lead in leads_a)
 
     target_lead = next(lead for lead in leads_a if lead["phone_number"] == "+5511988887777")
-    assert isinstance(target_lead["audit_trail"], list)
-    assert target_lead["audit_trail"] == ["Test qualification"]
+    assert "audit_trail" not in target_lead
     assert isinstance(target_lead["reasons"], list)
     assert target_lead["reasons"] == ["Test qualification"]
 

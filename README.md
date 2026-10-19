@@ -34,7 +34,7 @@ The script simulates a multi-turn qualification conversation with `LLM_PROVIDER=
 
 ### Operator Dashboard
 
-The real-time dashboard visualizes qualified and disqualified leads with an itemized scoring audit trail:
+The real-time dashboard visualizes qualified and disqualified leads with an itemized scoring reasons trail:
 
 **Desktop View:**
 ![Dashboard Desktop](docs/images/dashboard_desktop.png)
