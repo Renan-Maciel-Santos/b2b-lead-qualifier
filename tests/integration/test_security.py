@@ -134,15 +134,13 @@ async def test_dashboard_template_contains_no_innerhtml_with_lead_data(
 ) -> None:
     """Verify that the dashboard template renders safely without innerHTML for user data."""
     response = await api_client.get("/dashboard")
-    assert response.status_code == 200
-    html = response.text
+    html_content = response.text
 
-    # Anti-XSS validation: table body and audit trail must not contain dynamic innerHTML
-    assert "tbody.innerHTML = ` " not in html
-    assert "innerHTML" not in html
-    assert "document.createElement" in html
-    assert "textContent" in html
-    assert "audit-item" in html
+    # Anti-XSS validation: dashboard template must strictly not contain innerHTML in any form
+    assert "innerHTML" not in html_content
+    assert "document.createElement" in html_content
+    assert "textContent" in html_content
+    assert "audit-item" in html_content
 
 
 async def test_get_dashboard_returns_200(api_client: AsyncClient) -> None:
