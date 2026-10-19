@@ -10,6 +10,40 @@
 
 ---
 
+## Demo
+
+Run an automated 2-turn conversation qualification and inspect the live evaluation results in the dashboard:
+
+<!-- Demo GIF placeholder (to be recorded manually) -->
+
+### Quick Demo Run
+
+With the API running (`uv run b2b-lead-qualifier run` or Docker Compose), run the demo script in PowerShell or Bash:
+
+**PowerShell (Windows):**
+```powershell
+powershell -File scripts/demo.ps1
+```
+
+**Bash (Linux / macOS):**
+```bash
+bash scripts/demo.sh
+```
+
+The script simulates a multi-turn qualification conversation with `LLM_PROVIDER=fake`, extracts lead slots (`role: CEO`, `revenue_tier: 2m_to_10m`), evaluates scoring rules deterministically, and verifies the qualified lead on `GET /v1/leads`.
+
+### Operator Dashboard
+
+The real-time dashboard visualizes qualified and disqualified leads with an itemized scoring audit trail:
+
+**Desktop View:**
+![Dashboard Desktop](docs/images/dashboard_desktop.png)
+
+**Mobile View:**
+![Dashboard Mobile](docs/images/dashboard_mobile.png)
+
+---
+
 ## Architectural Philosophy
 
 Many conversational AI implementations delegate critical business decisions directly to large language models. This pattern often causes non-deterministic scoring, hallucinations, compliance risks, and an inability to audit why a lead was accepted or rejected.
