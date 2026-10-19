@@ -53,3 +53,18 @@ $$\text{Routers (HTTP only)} \longrightarrow \text{Services (Business Logic)} \l
 - **Review Checkpoint:** After completing each phase, run lint, types, and tests, present a summary of changes, and wait for explicit approval before proceeding to the next phase.
 - **Git Authority:** Never perform `push`, `merge`, or `rebase` directly to remote branches unless explicitly instructed. Pull Requests are created and managed by the repository owner.
 - **Zero Secrets:** Never version `.env` files, production credentials, or real customer data.
+
+---
+
+## 6. Agent Skills
+
+Project-specific agent skills reside in `.agent/skills/`. When there is any overlap between project skills and global agent skills, project skills take precedence and must be followed:
+
+1. **`data-architecture`:** PostgreSQL data modeling, migrations, transactions, and data pipeline design rules.
+2. **`delivery-report`:** Pre-push checklist and evidence-based delivery report format for task completions.
+3. **`distinctive-frontend`:** Visual identity, accessibility, and quality rules for user-facing dashboards and templates.
+4. **`git-workflow`:** Branching, conventional commits, pull requests, rebase merges, and git hygiene.
+5. **`llm-integration`:** Rules for integrating LLMs at the edge with structured outputs and fail-fast configuration.
+6. **`observability`:** Structured JSON logging, PII masking, health endpoints, and lifecycle event tracking.
+7. **`secure-backend`:** Security rules, API key scopes, least-privilege roles, and defense-in-depth isolation.
+8. **`testing-strategy`:** Real PostgreSQL integration tests, deterministic fixtures, and test design principles.
