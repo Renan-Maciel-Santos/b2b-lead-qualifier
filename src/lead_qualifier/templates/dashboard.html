@@ -587,8 +587,27 @@
             }
 
             .summary-bar {
-                padding: 0.6rem 0.75rem;
+                padding: 0.65rem 0.85rem;
                 font-size: 0.8rem;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.35rem;
+            }
+
+            .summary-main {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+
+            .summary-divider {
+                display: none !important;
+            }
+
+            .summary-aux {
+                font-size: 0.75rem;
+                color: var(--text-muted);
+                margin-top: 0.15rem;
             }
 
             /* No mobile, oculta tabela com rolagem e exibe fichas empilhadas */
@@ -656,12 +675,12 @@
                 <div class="summary-main">
                     <span class="summary-part">Total: <span id="summaryTotal" class="summary-count">0</span> avaliações</span>
                     <span class="summary-divider">/</span>
-                    <span class="summary-part"><span id="summaryQualified" class="summary-count qual">0</span> qualificados (<span id="summaryRate">0%</span>)</span>
+                    <span class="summary-part"><span id="summaryQualified" class="summary-count qual">0</span> <span id="summaryQualLabel">qualificados</span> <span id="summaryRate" class="summary-rate">(0%)</span></span>
                     <span class="summary-divider">/</span>
                     <span class="summary-part"><span id="summaryDisqualified" class="summary-count disq">0</span> desqualificados</span>
                 </div>
-                <div class="summary-aux">
-                    Visualização em tempo real
+                <div class="summary-aux" id="lastSync">
+                    Última sincronização: --:--
                 </div>
             </div>
 
@@ -978,8 +997,16 @@
                 // Atualização da linha de resumo integrada em texto
                 document.getElementById('summaryTotal').textContent = String(totalCount);
                 document.getElementById('summaryQualified').textContent = String(qualifiedCount);
-                document.getElementById('summaryRate').textContent = rate + '%';
+                document.getElementById('summaryQualLabel').textContent = qualifiedCount === 1 ? 'qualificado' : 'qualificados';
+                document.getElementById('summaryRate').textContent = '(' + rate + '%)';
                 document.getElementById('summaryDisqualified').textContent = String(disqualifiedCount);
+
+                const now = new Date();
+                const timeFormatted = new Intl.DateTimeFormat('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }).format(now);
+                document.getElementById('lastSync').textContent = 'Última sincronização: ' + timeFormatted;
 
                 // Limpeza segura dos nós DOM
                 while (tableBody.firstChild) {
