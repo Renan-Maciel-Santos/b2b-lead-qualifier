@@ -3,318 +3,654 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>B2B Lead Qualifier | Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <title>B2B Lead Qualifier | Painel de Auditoria</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --glass-bg: rgba(255, 255, 255, 0.05);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --text-main: #ffffff;
-            --text-muted: #94a3b8;
-            --brand-primary: #38bdf8;
-            --brand-secondary: #818cf8;
-            --accent-glow: rgba(56, 189, 248, 0.35);
-            --qual-color: #10b981;
-            --disq-color: #ef4444;
+            --bg-canvas: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-muted: #f1f5f9;
+            --border-default: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --text-heading: #0f172a;
+            --text-body: #334155;
+            --text-muted: #64748b;
+            --text-subtle: #94a3b8;
+            --accent-brand: #0f172a;
+            --accent-brand-hover: #1e293b;
+
+            --qual-bg: #ecfdf5;
+            --qual-border: #a7f3d0;
+            --qual-text: #15803d;
+            --qual-bar: #22c55e;
+
+            --notqual-bg: #fff7ed;
+            --notqual-border: #fed7aa;
+            --notqual-text: #9a3412;
+            --notqual-bar: #f97316;
+
+            --disq-bg: #fef2f2;
+            --disq-border: #fecaca;
+            --disq-text: #991b1b;
+            --disq-bar: #ef4444;
+
+            --font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
-            margin: 0;
-            padding: 0;
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-color);
-            color: var(--text-main);
-            background-image:
-                radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.12), transparent 25%),
-                radial-gradient(circle at 85% 30%, rgba(129, 140, 248, 0.12), transparent 25%);
-            background-attachment: fixed;
+            font-family: var(--font-family);
+            background-color: var(--bg-canvas);
+            color: var(--text-body);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            line-height: 1.5;
+            font-feature-settings: "tnum" 1;
+            font-variant-numeric: tabular-nums;
         }
 
         header {
             width: 100%;
-            padding: 1.5rem 0;
-            text-align: center;
-            border-bottom: 1px solid var(--glass-border);
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(12px);
+            background-color: var(--bg-surface);
+            border-bottom: 1px solid var(--border-default);
+            padding: 1rem 1.5rem;
             position: sticky;
             top: 0;
-            z-index: 10;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+            z-index: 20;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
             display: flex;
-            flex-direction: column;
+            flex-wrap: wrap;
             align-items: center;
+            justify-content: space-between;
             gap: 1rem;
         }
 
-        h1 {
-            margin: 0;
-            font-size: 2.2rem;
-            font-weight: 700;
-            background: linear-gradient(to right, var(--brand-primary), var(--brand-secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 20px var(--accent-glow);
-        }
-
-        .auth-bar {
+        .brand-block {
             display: flex;
-            gap: 0.75rem;
             align-items: center;
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 999px;
-            padding: 0.4rem 0.6rem 0.4rem 1.2rem;
-            backdrop-filter: blur(8px);
+            gap: 0.75rem;
         }
 
-        .auth-bar input {
-            background: transparent;
-            border: none;
-            color: var(--text-main);
-            font-family: inherit;
-            font-size: 0.9rem;
-            width: 280px;
-            outline: none;
-        }
-
-        .auth-bar input::placeholder {
+        .brand-badge {
+            background-color: var(--bg-muted);
             color: var(--text-muted);
-        }
-
-        .auth-bar button {
-            background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
-            border: none;
-            color: #0f172a;
-            font-family: inherit;
+            font-size: 0.75rem;
             font-weight: 600;
-            padding: 0.5rem 1.2rem;
-            border-radius: 999px;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-default);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-heading);
+            letter-spacing: -0.01em;
+        }
+
+        .auth-form {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .auth-input {
+            width: 320px;
+            max-width: 100%;
+            padding: 0.45rem 0.75rem;
+            font-size: 0.85rem;
+            font-family: inherit;
+            color: var(--text-heading);
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-strong);
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .auth-input:focus {
+            border-color: var(--accent-brand);
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
+        }
+
+        .auth-btn {
+            padding: 0.45rem 0.9rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+            color: #ffffff;
+            background-color: var(--accent-brand);
+            border: 1px solid var(--accent-brand);
+            border-radius: 6px;
             cursor: pointer;
-            transition: opacity 0.2s;
+            transition: background-color 0.15s ease;
+            white-space: nowrap;
         }
 
-        .auth-bar button:hover {
-            opacity: 0.9;
+        .auth-btn:hover {
+            background-color: var(--accent-brand-hover);
         }
 
-        .container {
-            width: 90%;
+        main {
+            flex: 1;
+            width: 100%;
             max-width: 1200px;
-            margin-top: 2rem;
+            margin: 1.5rem auto 3rem;
+            padding: 0 1.5rem;
             display: flex;
             flex-direction: column;
-            gap: 2rem;
-            margin-bottom: 3rem;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 1.5rem;
         }
 
-        .stat-card {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 1.5rem;
-            backdrop-filter: blur(10px);
+        /* Notificações e banners de estado */
+        .state-banner {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            padding: 2.5rem 1.5rem;
             text-align: center;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
         }
 
-        .stat-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-            border-color: rgba(255, 255, 255, 0.2);
+        .state-banner.warning {
+            border-color: var(--notqual-border);
+            background-color: var(--notqual-bg);
+            color: var(--notqual-text);
         }
 
-        .stat-value {
-            font-size: 2.8rem;
-            font-weight: 700;
-            margin: 0.5rem 0;
+        .state-banner.error {
+            border-color: var(--disq-border);
+            background-color: var(--disq-bg);
+            color: var(--disq-text);
+        }
+
+        .state-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: inherit;
+        }
+
+        .state-desc {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            max-width: 480px;
+        }
+
+        .state-banner.warning .state-desc,
+        .state-banner.error .state-desc {
+            color: inherit;
+            opacity: 0.9;
+        }
+
+        /* Grade de Métricas */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            padding: 1.15rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
         }
 
         .stat-label {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
+            font-weight: 500;
             color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
         }
 
-        .leads-table-container {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            backdrop-filter: blur(10px);
+        .stat-value {
+            font-size: 1.85rem;
+            font-weight: 700;
+            color: var(--text-heading);
+            letter-spacing: -0.02em;
+        }
+
+        .stat-card.qualified .stat-value {
+            color: var(--qual-text);
+        }
+
+        .stat-card.disqualified .stat-value {
+            color: var(--disq-text);
+        }
+
+        /* Tabela de Auditoria */
+        .table-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
             text-align: left;
-        }
-
-        th, td {
-            padding: 1.2rem;
-            border-bottom: 1px solid var(--glass-border);
+            font-size: 0.875rem;
         }
 
         th {
-            background: rgba(255, 255, 255, 0.04);
+            background-color: var(--bg-muted);
             color: var(--text-muted);
             font-weight: 600;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            font-size: 0.85rem;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-default);
         }
 
-        tr {
-            transition: background 0.2s ease;
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-default);
+            vertical-align: top;
+            color: var(--text-body);
         }
 
-        tr:hover {
-            background: rgba(255, 255, 255, 0.03);
+        tr:last-child td {
+            border-bottom: none;
         }
 
-        .badge {
-            padding: 0.35rem 0.9rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
+        tr:hover td {
+            background-color: #fafbfc;
+        }
+
+        .phone-cell {
             font-weight: 600;
-            display: inline-block;
+            color: var(--text-heading);
+            white-space: nowrap;
         }
 
-        .badge.qualified {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--qual-color);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-
-        .badge.disqualified {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--disq-color);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-
-        .audit-trail {
-            font-size: 0.85rem;
+        .date-cell {
             color: var(--text-muted);
-            max-width: 440px;
-            line-height: 1.4;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+
+        /* Badges de Decisão */
+        .decision-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+            letter-spacing: 0.2px;
+        }
+
+        .decision-badge.qualified {
+            background-color: var(--qual-bg);
+            border: 1px solid var(--qual-border);
+            color: var(--qual-text);
+        }
+
+        .decision-badge.not-qualified {
+            background-color: var(--notqual-bg);
+            border: 1px solid var(--notqual-border);
+            color: var(--notqual-text);
+        }
+
+        .decision-badge.disqualified {
+            background-color: var(--disq-bg);
+            border: 1px solid var(--disq-border);
+            color: var(--disq-text);
+        }
+
+        /* Barra de Pontuação e Escala */
+        .score-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            min-width: 200px;
+            max-width: 260px;
+        }
+
+        .score-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            font-size: 0.8rem;
+        }
+
+        .score-actual {
+            font-weight: 700;
+            color: var(--text-heading);
+            font-size: 0.95rem;
+        }
+
+        .score-threshold-hint {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+        .score-track {
+            height: 8px;
+            background-color: var(--bg-muted);
+            border-radius: 999px;
+            position: relative;
+            overflow: visible;
+        }
+
+        .score-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+
+        .score-fill.qualified {
+            background-color: var(--qual-bar);
+        }
+
+        .score-fill.not-qualified {
+            background-color: var(--notqual-bar);
+        }
+
+        .score-fill.disqualified {
+            background-color: var(--disq-bar);
+        }
+
+        .score-cut-marker {
+            position: absolute;
+            top: -3px;
+            bottom: -3px;
+            width: 2px;
+            background-color: var(--text-heading);
+            border-radius: 1px;
+            z-index: 2;
+        }
+
+        .score-footer {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: var(--text-subtle);
+        }
+
+        /* Trilha de Auditoria Estruturada */
+        .audit-trail {
             display: flex;
             flex-direction: column;
             gap: 0.35rem;
+            max-width: 440px;
         }
 
         .audit-item {
-            display: block;
-            padding: 0.25rem 0.5rem;
-            background: rgba(255, 255, 255, 0.03);
-            border-left: 2px solid var(--accent);
-            border-radius: 0 4px 4px 0;
-            word-break: break-word;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            padding: 0.3rem 0.5rem;
+            background-color: var(--bg-muted);
+            border-radius: 4px;
+            border-left: 3px solid var(--border-strong);
+        }
+
+        .audit-item.award {
+            border-left-color: var(--qual-bar);
+        }
+
+        .audit-item.knockout {
+            border-left-color: var(--disq-bar);
+            background-color: var(--disq-bg);
+            color: var(--disq-text);
         }
 
         .audit-item.empty {
-            border-left: 2px solid var(--glass-border);
-            color: var(--text-muted);
-            background: transparent;
+            border-left-color: var(--border-default);
+            color: var(--text-subtle);
             font-style: italic;
+            background-color: transparent;
         }
 
-        .auth-prompt {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 3rem;
-            text-align: center;
-            backdrop-filter: blur(10px);
+        .audit-pts {
+            font-weight: 700;
+            white-space: nowrap;
+            color: var(--qual-text);
         }
 
-        .loading-spinner {
-            margin: 3rem auto;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-left-color: var(--brand-primary);
+        .audit-item.knockout .audit-pts {
+            color: var(--disq-text);
+        }
+
+        .audit-desc {
+            color: inherit;
+            word-break: break-word;
+        }
+
+        /* Spinner de Carregamento */
+        .loading-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3.5rem 1rem;
+            gap: 1rem;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-default);
+            border-top-color: var(--accent-brand);
             border-radius: 50%;
-            width: 44px;
-            height: 44px;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .auth-form {
+                flex-direction: column;
+            }
+
+            .auth-input {
+                width: 100%;
+            }
+
+            .auth-btn {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>B2B Lead Qualifier</h1>
-        <div class="auth-bar">
-            <input type="password" id="apiKeyInput" placeholder="Operator API Key (Bearer Token)" autocomplete="off">
-            <button id="connectBtn" type="button">Connect</button>
+        <div class="header-content">
+            <div class="brand-block">
+                <h1>B2B Lead Qualifier</h1>
+                <span class="brand-badge">Auditoria</span>
+            </div>
+            <div class="auth-form">
+                <input
+                    type="password"
+                    id="apiKeyInput"
+                    class="auth-input"
+                    placeholder="Chave de API do operador (Bearer)"
+                    autocomplete="off"
+                    aria-label="Chave de API do operador"
+                >
+                <button id="connectBtn" class="auth-btn" type="button">Conectar</button>
+            </div>
         </div>
     </header>
 
-    <div class="container">
-        <div id="authPrompt" class="auth-prompt" style="display: none;">
-            <h2>Authentication Required</h2>
-            <p style="color: var(--text-muted);">Please enter a valid Operator API Key above to load lead qualification data.</p>
+    <main>
+        <!-- Estado 1: Sem Chave -->
+        <div id="authPrompt" class="state-banner">
+            <h2 class="state-title">Autenticação necessária</h2>
+            <p class="state-desc">Informe uma chave de API de operador válida no campo superior para consultar a trilha de auditoria e as avaliações de leads.</p>
         </div>
 
-        <div id="loading" class="loading-spinner" style="display: none;"></div>
+        <!-- Estado 2: Chave Inválida (401) -->
+        <div id="invalidKeyNotice" class="state-banner warning" style="display: none;">
+            <h2 class="state-title">Chave de API inválida ou revogada</h2>
+            <p class="state-desc">A chave fornecida foi recusada pelo serviço. Verifique se o token de acesso possui o escopo necessário.</p>
+        </div>
 
+        <!-- Estado 3: Carregando -->
+        <div id="loading" class="loading-wrap" style="display: none;">
+            <div class="spinner" aria-hidden="true"></div>
+            <p class="state-desc">Carregando avaliações de leads...</p>
+        </div>
+
+        <!-- Estado 4: Erro de API/Conexão -->
+        <div id="errorNotice" class="state-banner error" style="display: none;">
+            <h2 class="state-title">Erro ao conectar à API</h2>
+            <p class="state-desc">Não foi possível carregar os dados. Verifique a conexão com o servidor.</p>
+        </div>
+
+        <!-- Conteúdo Principal / Estado de Dados -->
         <div id="content" style="display: none;">
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-label">Total Leads</div>
-                    <div class="stat-value" id="totalLeads">0</div>
+                    <span class="stat-label">Total de leads</span>
+                    <span class="stat-value" id="totalLeads">0</span>
+                </div>
+                <div class="stat-card qualified">
+                    <span class="stat-label">Aprovados</span>
+                    <span class="stat-value" id="totalQualified">0</span>
+                </div>
+                <div class="stat-card disqualified">
+                    <span class="stat-label">Reprovados</span>
+                    <span class="stat-value" id="totalDisqualified">0</span>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Qualified</div>
-                    <div class="stat-value" id="totalQualified" style="color: var(--qual-color);">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Disqualified</div>
-                    <div class="stat-value" id="totalDisqualified" style="color: var(--disq-color);">0</div>
+                    <span class="stat-label">Taxa de aprovação</span>
+                    <span class="stat-value" id="approvalRate">0%</span>
                 </div>
             </div>
 
-            <div class="leads-table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Phone</th>
-                            <th>Status</th>
-                            <th>Final Score</th>
-                            <th>Evaluation Date</th>
-                            <th>Audit Trail</th>
-                        </tr>
-                    </thead>
-                    <tbody id="leadsTableBody">
+            <!-- Estado 5: Lista Vazia -->
+            <div id="emptyNotice" class="state-banner" style="display: none; margin-top: 1rem;">
+                <h2 class="state-title">Nenhum lead avaliado</h2>
+                <p class="state-desc">Nenhum registro de qualificação foi encontrado para este locatário até o momento.</p>
+            </div>
+
+            <div id="tableCard" class="table-card" style="margin-top: 1rem;">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Telefone</th>
+                                <th>Decisão</th>
+                                <th>Pontuação e meta</th>
+                                <th>Avaliado em</th>
+                                <th>Critérios avaliados</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leadsTableBody">
                     </tbody>
-                </table>
+                    </table>
+                </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <script>
         const apiKeyInput = document.getElementById('apiKeyInput');
         const connectBtn = document.getElementById('connectBtn');
         const authPrompt = document.getElementById('authPrompt');
+        const invalidKeyNotice = document.getElementById('invalidKeyNotice');
+        const errorNotice = document.getElementById('errorNotice');
         const loading = document.getElementById('loading');
         const content = document.getElementById('content');
+        const emptyNotice = document.getElementById('emptyNotice');
+        const tableCard = document.getElementById('tableCard');
         const tableBody = document.getElementById('leadsTableBody');
+
+        // Dicionário canônico de rótulos de campos de qualificação
+        const FIELD_LABELS = {
+            'role': 'Cargo',
+            'revenue_tier': 'Faturamento anual',
+            'company_size': 'Porte da empresa',
+            'name': 'Nome',
+            'pain_point': 'Dor principal'
+        };
+
+        // Dicionário canônico para os valores do enum RevenueTier
+        const REVENUE_TIER_LABELS = {
+            'below_500k': 'Abaixo de R$ 500 mil',
+            '500k_to_2m': 'De R$ 500 mil a R$ 2 mi',
+            '2m_to_10m': 'De R$ 2 mi a R$ 10 mi',
+            'above_10m': 'Acima de R$ 10 mi'
+        };
+
+        // Dicionário canônico para os valores do enum CompanySize
+        const COMPANY_SIZE_LABELS = {
+            'solo': 'Individual (1 pessoa)',
+            'small_2_to_10': 'Pequena (2 a 10 pessoas)',
+            'medium_11_to_50': 'Média (11 a 50 pessoas)',
+            'large_51_to_200': 'Grande (51 a 200 pessoas)',
+            'enterprise_above_200': 'Enterprise (> 200 pessoas)'
+        };
+
+        function formatFieldValue(field, val) {
+            if (val === null || val === undefined || val === '') {
+                return 'Não informado';
+            }
+            const strVal = String(val);
+            if (field === 'revenue_tier') {
+                return REVENUE_TIER_LABELS[strVal] || strVal;
+            }
+            if (field === 'company_size') {
+                return COMPANY_SIZE_LABELS[strVal] || strVal;
+            }
+            return strVal;
+        }
+
+        function formatFieldLabel(field) {
+            return FIELD_LABELS[field] || String(field);
+        }
+
+        function hideAllStates() {
+            authPrompt.style.display = 'none';
+            invalidKeyNotice.style.display = 'none';
+            errorNotice.style.display = 'none';
+            loading.style.display = 'none';
+            content.style.display = 'none';
+            emptyNotice.style.display = 'none';
+        }
 
         const savedKey = sessionStorage.getItem('b2b_operator_key');
         if (savedKey) {
@@ -324,7 +660,8 @@
         connectBtn.addEventListener('click', () => {
             const key = apiKeyInput.value.trim();
             if (!key) {
-                alert('Please enter an API key.');
+                hideAllStates();
+                authPrompt.style.display = 'flex';
                 return;
             }
             sessionStorage.setItem('b2b_operator_key', key);
@@ -333,15 +670,13 @@
 
         async function fetchLeads(apiKey) {
             if (!apiKey) {
-                authPrompt.style.display = 'block';
-                content.style.display = 'none';
-                loading.style.display = 'none';
+                hideAllStates();
+                authPrompt.style.display = 'flex';
                 return;
             }
 
-            authPrompt.style.display = 'none';
-            loading.style.display = 'block';
-            content.style.display = 'none';
+            hideAllStates();
+            loading.style.display = 'flex';
 
             try {
                 const response = await fetch('/v1/leads', {
@@ -351,101 +686,228 @@
                 });
 
                 if (response.status === 401) {
-                    loading.style.display = 'none';
-                    authPrompt.style.display = 'block';
-                    alert('Invalid or revoked API key.');
+                    hideAllStates();
+                    invalidKeyNotice.style.display = 'flex';
                     return;
                 }
 
                 if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
+                    console.error('API responded with unexpected status code:', response.status);
+                    hideAllStates();
+                    errorNotice.style.display = 'flex';
+                    return;
                 }
 
                 const data = await response.json();
-                const leads = data.leads || [];
+                const leads = Array.isArray(data.leads) ? data.leads : [];
 
-                document.getElementById('totalLeads').textContent = String(leads.length);
-                document.getElementById('totalQualified').textContent = String(leads.filter(l => l.is_qualified).length);
-                document.getElementById('totalDisqualified').textContent = String(leads.filter(l => !l.is_qualified).length);
+                // Atualização dos indicadores de resumo
+                const totalCount = leads.length;
+                const qualifiedCount = leads.filter(l => Boolean(l.is_qualified)).length;
+                const disqualifiedCount = totalCount - qualifiedCount;
+                const rate = totalCount > 0 ? Math.round((qualifiedCount / totalCount) * 100) : 0;
 
-                // Safe DOM building: textContent and createElement ONLY to strictly prevent XSS
+                document.getElementById('totalLeads').textContent = String(totalCount);
+                document.getElementById('totalQualified').textContent = String(qualifiedCount);
+                document.getElementById('totalDisqualified').textContent = String(disqualifiedCount);
+                document.getElementById('approvalRate').textContent = rate + '%';
+
+                // Limpeza segura da tabela via nós DOM
                 while (tableBody.firstChild) {
                     tableBody.removeChild(tableBody.firstChild);
                 }
 
-                leads.forEach(lead => {
-                    const tr = document.createElement('tr');
+                if (totalCount === 0) {
+                    tableCard.style.display = 'none';
+                    emptyNotice.style.display = 'flex';
+                } else {
+                    tableCard.style.display = 'block';
+                    emptyNotice.style.display = 'none';
 
-                    // Phone column
-                    const tdPhone = document.createElement('td');
-                    tdPhone.style.fontWeight = '600';
-                    tdPhone.textContent = String(lead.phone_number || '');
-                    tr.appendChild(tdPhone);
+                    leads.forEach(lead => {
+                        const tr = document.createElement('tr');
 
-                    // Status column
-                    const tdStatus = document.createElement('td');
-                    const badge = document.createElement('span');
-                    badge.className = 'badge ' + (lead.is_qualified ? 'qualified' : 'disqualified');
-                    badge.textContent = lead.is_qualified ? 'QUALIFIED' : 'DISQUALIFIED';
-                    tdStatus.appendChild(badge);
-                    tr.appendChild(tdStatus);
+                        // Coluna: Telefone
+                        const tdPhone = document.createElement('td');
+                        tdPhone.className = 'phone-cell';
+                        tdPhone.textContent = String(lead.phone_number || '-');
+                        tr.appendChild(tdPhone);
 
-                    // Score column
-                    const tdScore = document.createElement('td');
-                    const strongScore = document.createElement('strong');
-                    const score = Number(lead.final_score) || 0;
-                    strongScore.style.color = score > 0 ? 'var(--qual-color)' : (score < 0 ? 'var(--disq-color)' : 'white');
-                    strongScore.textContent = score + ' pts';
-                    tdScore.appendChild(strongScore);
-                    tr.appendChild(tdScore);
+                        // Identificação de knockout na lista de razões
+                        const reasons = Array.isArray(lead.reasons) ? lead.reasons : [];
+                        const isKnockout = reasons.some(r => r && r.rule_type === 'knockout');
+                        const isQualified = Boolean(lead.is_qualified);
 
-                    // Date column
-                    const tdDate = document.createElement('td');
-                    tdDate.style.color = 'var(--text-muted)';
-                    tdDate.style.fontSize = '0.9rem';
-                    tdDate.textContent = lead.created_at ? new Date(lead.created_at).toLocaleString('pt-BR') : '-';
-                    tr.appendChild(tdDate);
+                        // Coluna: Decisão
+                        const tdDecision = document.createElement('td');
+                        const badge = document.createElement('span');
+                        if (isQualified) {
+                            badge.className = 'decision-badge qualified';
+                            badge.textContent = '✓ Aprovado';
+                        } else if (isKnockout) {
+                            badge.className = 'decision-badge disqualified';
+                            badge.textContent = '⊘ Eliminado';
+                        } else {
+                            badge.className = 'decision-badge not-qualified';
+                            badge.textContent = '✕ Insuficiente';
+                        }
+                        tdDecision.appendChild(badge);
+                        tr.appendChild(tdDecision);
 
-                    // Audit trail column
-                    const tdAudit = document.createElement('td');
-                    const auditDiv = document.createElement('div');
-                    auditDiv.className = 'audit-trail';
-                    const reasons = Array.isArray(lead.reasons) ? lead.reasons : [];
+                        // Coluna: Pontuação e Meta (Escala baseada no max_possible_score)
+                        const tdScore = document.createElement('td');
+                        const scoreContainer = document.createElement('div');
+                        scoreContainer.className = 'score-container';
 
-                    if (reasons.length === 0) {
-                        const emptyItem = document.createElement('div');
-                        emptyItem.className = 'audit-item empty';
-                        emptyItem.textContent = 'No rules triggered';
-                        auditDiv.appendChild(emptyItem);
-                    } else {
-                        reasons.forEach(reason => {
-                            const item = document.createElement('div');
-                            item.className = 'audit-item';
-                            item.textContent = String(reason);
-                            auditDiv.appendChild(item);
-                        });
-                    }
-                    tdAudit.appendChild(auditDiv);
-                    tr.appendChild(tdAudit);
+                        const finalScore = Number(lead.final_score) || 0;
+                        const threshold = Number(lead.qualification_threshold) || 50;
+                        const maxScore = Math.max(Number(lead.max_possible_score) || 100, threshold, finalScore);
 
-                    tableBody.appendChild(tr);
-                });
+                        const scoreHeader = document.createElement('div');
+                        scoreHeader.className = 'score-header';
 
-                loading.style.display = 'none';
+                        const actualSpan = document.createElement('span');
+                        actualSpan.className = 'score-actual';
+                        actualSpan.textContent = finalScore + ' pts';
+                        scoreHeader.appendChild(actualSpan);
+
+                        const hintSpan = document.createElement('span');
+                        hintSpan.className = 'score-threshold-hint';
+                        if (isQualified) {
+                            hintSpan.textContent = 'Meta: ' + threshold + ' pts';
+                        } else if (isKnockout) {
+                            hintSpan.textContent = 'Critério eliminatório';
+                        } else {
+                            const deficit = Math.max(0, threshold - finalScore);
+                            hintSpan.textContent = 'Faltam ' + deficit + ' pts';
+                        }
+                        scoreHeader.appendChild(hintSpan);
+                        scoreContainer.appendChild(scoreHeader);
+
+                        // Barra com marcador de corte
+                        const track = document.createElement('div');
+                        track.className = 'score-track';
+                        track.setAttribute('aria-label', 'Pontuação: ' + finalScore + ' de ' + maxScore + ' pontos. Nota de corte: ' + threshold + ' pontos.');
+
+                        const fillPct = Math.min(100, Math.max(0, (finalScore / maxScore) * 100));
+                        const fill = document.createElement('div');
+                        fill.className = 'score-fill ' + (isQualified ? 'qualified' : (isKnockout ? 'disqualified' : 'not-qualified'));
+                        fill.style.width = fillPct + '%';
+                        track.appendChild(fill);
+
+                        const cutPct = Math.min(100, Math.max(0, (threshold / maxScore) * 100));
+                        const cutMarker = document.createElement('div');
+                        cutMarker.className = 'score-cut-marker';
+                        cutMarker.style.left = cutPct + '%';
+                        cutMarker.title = 'Nota de corte: ' + threshold + ' pts';
+                        track.appendChild(cutMarker);
+
+                        scoreContainer.appendChild(track);
+
+                        const scoreFooter = document.createElement('div');
+                        scoreFooter.className = 'score-footer';
+
+                        const zeroLabel = document.createElement('span');
+                        zeroLabel.textContent = '0';
+                        scoreFooter.appendChild(zeroLabel);
+
+                        const cutLabel = document.createElement('span');
+                        cutLabel.textContent = 'Corte: ' + threshold;
+                        scoreFooter.appendChild(cutLabel);
+
+                        const maxLabel = document.createElement('span');
+                        maxLabel.textContent = 'Máx: ' + maxScore;
+                        scoreFooter.appendChild(maxLabel);
+
+                        scoreContainer.appendChild(scoreFooter);
+                        tdScore.appendChild(scoreContainer);
+                        tr.appendChild(tdScore);
+
+                        // Coluna: Avaliado em
+                        const tdDate = document.createElement('td');
+                        tdDate.className = 'date-cell';
+                        if (lead.created_at) {
+                            try {
+                                const parsedDate = new Date(lead.created_at);
+                                tdDate.textContent = new Intl.DateTimeFormat('pt-BR', {
+                                    dateStyle: 'short',
+                                    timeStyle: 'short'
+                                }).format(parsedDate);
+                            } catch (_) {
+                                tdDate.textContent = String(lead.created_at);
+                            }
+                        } else {
+                            tdDate.textContent = '-';
+                        }
+                        tr.appendChild(tdDate);
+
+                        // Coluna: Trilha de Auditoria (Montada em pt-BR via campos estruturados)
+                        const tdAudit = document.createElement('td');
+                        const auditDiv = document.createElement('div');
+                        auditDiv.className = 'audit-trail';
+
+                        if (reasons.length === 0) {
+                            const emptyItem = document.createElement('div');
+                            emptyItem.className = 'audit-item empty';
+                            emptyItem.textContent = 'Nenhuma regra aplicada';
+                            auditDiv.appendChild(emptyItem);
+                        } else {
+                            reasons.forEach(r => {
+                                const item = document.createElement('div');
+                                const fieldLabel = formatFieldLabel(r.field);
+                                const valLabel = formatFieldValue(r.field, r.value);
+
+                                if (r.rule_type === 'knockout') {
+                                    item.className = 'audit-item knockout';
+
+                                    const tagSpan = document.createElement('span');
+                                    tagSpan.className = 'audit-pts';
+                                    tagSpan.textContent = 'Eliminatório:';
+                                    item.appendChild(tagSpan);
+
+                                    const descSpan = document.createElement('span');
+                                    descSpan.className = 'audit-desc';
+                                    descSpan.textContent = fieldLabel + ' igual a "' + valLabel + '"';
+                                    item.appendChild(descSpan);
+                                } else {
+                                    item.className = 'audit-item award';
+
+                                    const ptsSpan = document.createElement('span');
+                                    ptsSpan.className = 'audit-pts';
+                                    const pts = Number(r.points) || 0;
+                                    ptsSpan.textContent = (pts >= 0 ? '+' : '') + pts + ' pts';
+                                    item.appendChild(ptsSpan);
+
+                                    const descSpan = document.createElement('span');
+                                    descSpan.className = 'audit-desc';
+                                    descSpan.textContent = fieldLabel + ': ' + valLabel;
+                                    item.appendChild(descSpan);
+                                }
+                                auditDiv.appendChild(item);
+                            });
+                        }
+                        tdAudit.appendChild(auditDiv);
+                        tr.appendChild(tdAudit);
+
+                        tableBody.appendChild(tr);
+                    });
+                }
+
+                hideAllStates();
                 content.style.display = 'block';
 
             } catch (err) {
-                console.error('Error fetching leads:', err);
-                loading.style.display = 'none';
-                authPrompt.style.display = 'block';
-                alert('Failed to connect to the API. Verify your API key and connection.');
+                console.error('Failed to communicate with API service:', err);
+                hideAllStates();
+                errorNotice.style.display = 'flex';
             }
         }
 
         if (savedKey) {
             fetchLeads(savedKey);
         } else {
-            authPrompt.style.display = 'block';
+            hideAllStates();
+            authPrompt.style.display = 'flex';
         }
     </script>
 </body>
