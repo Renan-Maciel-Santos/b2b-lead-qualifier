@@ -14,6 +14,7 @@ from lead_qualifier.core.scoring.strategy import (
     KnockoutStrategy,
     StrategyResult,
     build_strategies_from_rules,
+    calculate_max_possible_score,
     parse_rule_set_config,
 )
 from lead_qualifier.services.scoring_service import ScoringResult, ScoringService
@@ -120,7 +121,28 @@ def test_scoring_service_halts_immediately_on_knockout() -> None:
     assert result.is_qualified is False
     assert result.final_score == 0
     assert len(result.reasons) == 1
-    assert "Disqualified" in result.reasons[0]
+    assert result.reasons[0]["rule_type"] == "knockout"
+    assert result.reasons[0]["field"] == "role"
+    assert result.reasons[0]["value"] == "estudante"
+
+
+def test_calculate_max_possible_score() -> None:
+    """Verify calculation of theoretical maximum score across distinct fields."""
+    rules: list[dict[str, Any]] = [
+        {"type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+        {"type": "exact_match", "field": "role", "value": "Diretor", "points": 40},
+        {"type": "exact_match", "field": "revenue_tier", "value": "2m_to_10m", "points": 35},
+        {"type": "exact_match", "field": "revenue_tier", "value": "above_10m", "points": 50},
+        {
+            "type": "exact_match",
+            "field": "company_size",
+            "value": "enterprise_above_200",
+            "points": 30,
+        },
+        {"type": "knockout", "field": "role", "value": "estudante"},
+    ]
+    # role max = 50, revenue_tier max = 50, company_size max = 30 -> 130
+    assert calculate_max_possible_score(rules) == 130
 
 
 def test_scoring_service_threshold_evaluation() -> None:

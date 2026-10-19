@@ -54,7 +54,10 @@ async def test_repository_save_scoring_result(db_pool: AsyncConnectionPool) -> N
     phone = f"+55119{uuid.uuid4().int % 100000000:08d}"
     score = 100
     qualified = True
-    audit = ["Awarded 50 pts for CEO role", "Awarded 50 pts for revenue tier"]
+    audit = [
+        {"rule_type": "exact_match", "field": "role", "value": "CEO", "points": 50},
+        {"rule_type": "exact_match", "field": "revenue_tier", "value": "above_10m", "points": 50},
+    ]
 
     async with set_test_tenant_context(db_pool, TENANT_TEST, "tenant_test") as conn:
         repo = ConversationRepository(conn)

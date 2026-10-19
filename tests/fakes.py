@@ -65,7 +65,7 @@ class FakeConversationRepository:
         rule_set_id: str,
         final_score: int,
         is_qualified: bool,
-        audit_trail: list[str],
+        audit_trail: list[dict[str, Any]] | list[Any],
     ) -> None:
         self.call_log.append("save_scoring_result")
         self.scoring_results.append(

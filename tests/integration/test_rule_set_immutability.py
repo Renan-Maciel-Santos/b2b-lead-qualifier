@@ -119,6 +119,14 @@ async def test_rule_set_allows_inserting_new_version(
 ) -> None:
     """Verify that a brand new version (version 2) can be inserted cleanly."""
     async with db_admin.cursor() as cur:
+        # Clean up any residual version 2 from previous runs
+        await cur.execute(
+            """
+            DELETE FROM tenant_test.scoring_rule_sets
+            WHERE tenant_id = %s AND version = 2
+            """,
+            (TENANT_TEST,),
+        )
         # First deactivate version 1 because of the partial unique index on is_active
         await cur.execute(
             """

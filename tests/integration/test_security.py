@@ -102,7 +102,7 @@ async def test_cross_tenant_isolation_via_api_key(
                 (SELECT id FROM tenant_test.scoring_rule_sets WHERE is_active = true LIMIT 1),
                 100,
                 true,
-                '["Test qualification"]'::jsonb
+                '[{"rule_type": "exact_match", "field": "role", "value": "CEO", "points": 50}]'::jsonb
             )
             """
         )
@@ -118,7 +118,13 @@ async def test_cross_tenant_isolation_via_api_key(
     target_lead = next(lead for lead in leads_a if lead["phone_number"] == "+5511988887777")
     assert "audit_trail" not in target_lead
     assert isinstance(target_lead["reasons"], list)
-    assert target_lead["reasons"] == ["Test qualification"]
+    assert len(target_lead["reasons"]) == 1
+    assert target_lead["reasons"][0]["rule_type"] == "exact_match"
+    assert target_lead["reasons"][0]["field"] == "role"
+    assert target_lead["reasons"][0]["value"] == "CEO"
+    assert target_lead["reasons"][0]["points"] == 50
+    assert target_lead["qualification_threshold"] == 50
+    assert target_lead["max_possible_score"] > 0
 
     # Request leads using Tenant B's (Attacker) key -> must NOT see Tenant A's lead
     headers_b = {"Authorization": f"Bearer {API_KEY_INVASOR}"}
