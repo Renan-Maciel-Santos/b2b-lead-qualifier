@@ -8,7 +8,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest_asyncio
-from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection, sql
 from psycopg_pool import AsyncConnectionPool
@@ -18,8 +17,29 @@ from lead_qualifier.core.database import tenant_transaction
 from lead_qualifier.core.security import hash_api_key
 from lead_qualifier.core.tenant import TenantContext
 
-# Load environment variables from .env file for local test runs
-load_dotenv()
+# Permitted local development database hosts for destructive test execution
+SAFE_TEST_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def assert_safe_test_database(
+    db_host: str | None = None,
+    ci_env: str | None = None,
+) -> None:
+    """Ensure destructive test database setup only executes against local or CI environments.
+
+    Raises:
+        RuntimeError: If attempting to run destructive test setup against an untrusted remote host.
+    """
+    host = (db_host if db_host is not None else os.getenv("DB_HOST", "127.0.0.1")).strip().lower()
+    is_ci = (ci_env if ci_env is not None else os.getenv("CI", "")).strip().lower() in ("true", "1")
+
+    if not is_ci and host not in SAFE_TEST_HOSTS:
+        raise RuntimeError(
+            f"Destructive test setup aborted: Target database host '{host}' is not a permitted "
+            f"local development host ({', '.join(sorted(SAFE_TEST_HOSTS))}) and CI is not 'true'. "
+            "To prevent accidental data loss, integration tests cannot run against remote databases."
+        )
+
 
 # Windows selector loop policy is required for psycopg async event loop support on Windows
 if sys.platform == "win32":
@@ -106,10 +126,15 @@ def set_test_tenant_context(
 @pytest_asyncio.fixture
 async def db_admin() -> AsyncIterator[AsyncConnection]:
     """Yield a superuser connection for administrative operations and schema provisioning."""
+    assert_safe_test_database()
     admin_user = os.getenv("DB_ADMIN_USER", "postgres")
     admin_pwd = os.getenv("DB_ADMIN_PASSWORD", "secret")
     db_name = os.getenv("DB_NAME", "b2b_lead_qualifier")
-    conn_str = f"postgresql://{admin_user}:{admin_pwd}@127.0.0.1:5432/{db_name}?connect_timeout=3"
+    db_host = os.getenv("DB_HOST", "127.0.0.1")
+    db_port = os.getenv("DB_PORT", "5432")
+    conn_str = (
+        f"postgresql://{admin_user}:{admin_pwd}@{db_host}:{db_port}/{db_name}?connect_timeout=3"
+    )
     async with await AsyncConnection.connect(conn_str) as conn:
         yield conn
 
@@ -117,6 +142,7 @@ async def db_admin() -> AsyncIterator[AsyncConnection]:
 @pytest_asyncio.fixture
 async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
     """Ensure test tenants, baseline rule sets, and test API keys are provisioned before each integration test."""
+    assert_safe_test_database()
     async with db_admin.cursor() as cur:
         await cur.execute(
             "SELECT core.provision_tenant(%s, %s, %s)",
