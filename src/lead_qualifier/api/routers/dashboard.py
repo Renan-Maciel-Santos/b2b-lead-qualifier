@@ -1,6 +1,5 @@
 """Dashboard router providing lead monitoring endpoints and HTML view rendering."""
 
-import json
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -51,20 +50,12 @@ async def get_leads(
         )
         leads = await cur.fetchall()
 
-        # Normaliza audit_trail e reasons como lista estruturada de strings
+        # Expose scoring reasons strictly as a list of strings, removing duplicate audit_trail column
         for lead in leads:
-            raw_audit = lead.get("audit_trail")
-            if isinstance(raw_audit, str):
-                try:
-                    parsed = json.loads(raw_audit)
-                    lead["audit_trail"] = parsed if isinstance(parsed, list) else [str(parsed)]
-                except Exception:
-                    lead["audit_trail"] = [raw_audit] if raw_audit else []
-            elif not isinstance(raw_audit, list):
-                lead["audit_trail"] = []
-
-            # Expose structured reasons list matching audit_trail
-            lead["reasons"] = lead["audit_trail"]
+            raw_reasons = lead.pop("audit_trail", [])
+            lead["reasons"] = (
+                [str(item) for item in raw_reasons] if isinstance(raw_reasons, list) else []
+            )
 
         return {"leads": leads}
 

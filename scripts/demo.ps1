@@ -76,7 +76,7 @@ if ($leadsRes.leads.Count -gt 0) {
     Write-Host "   Lead Phone:    $($latest.phone_number)" -ForegroundColor White
     Write-Host "   Verdict:       $(if ($latest.is_qualified) { 'QUALIFIED' } else { 'DISQUALIFIED' })" -ForegroundColor $(if ($latest.is_qualified) { 'Green' } else { 'Red' })
     Write-Host "   Final Score:   $($latest.final_score) pts" -ForegroundColor White
-    Write-Host "   Audit Trail:" -ForegroundColor Cyan
+    Write-Host "   Reasons:" -ForegroundColor Cyan
     foreach ($reason in $latest.reasons) {
         Write-Host "     - $reason" -ForegroundColor Gray
     }
