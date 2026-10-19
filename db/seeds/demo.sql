@@ -29,9 +29,6 @@ VALUES (
     true
 )
 ON CONFLICT (tenant_id, version) DO UPDATE SET
-    rules = EXCLUDED.rules,
-    required_slots = EXCLUDED.required_slots,
-    qualification_threshold = EXCLUDED.qualification_threshold,
     is_active = EXCLUDED.is_active;
 
 -- Demo API key (raw: b2b_live_demo_acme_111111111111111111111111)

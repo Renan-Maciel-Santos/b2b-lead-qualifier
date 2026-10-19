@@ -169,9 +169,6 @@ async def _setup_test_tenants(db_admin: AsyncConnection) -> None:
                 ARRAY['role', 'revenue_tier']::text[],
                 50, true
             ) ON CONFLICT (tenant_id, version) DO UPDATE SET
-                rules = EXCLUDED.rules,
-                required_slots = EXCLUDED.required_slots,
-                qualification_threshold = EXCLUDED.qualification_threshold,
                 is_active = EXCLUDED.is_active
             """,
             (TENANT_TEST,),
