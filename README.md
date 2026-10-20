@@ -12,6 +12,10 @@
 
 ## Demo
 
+![B2B Lead Qualifier Demonstration](docs/images/demo.gif)
+
+*To regenerate this demonstration GIF, run `uv run python scripts/record_demo_gif.py` with the API running.*
+
 Run an automated end-to-end interactive demonstration simulating three distinct business qualification scenarios and inspect the live evaluation results in the dashboard:
 
 1. **Qualified Lead:** CEO role (+50 pts) and revenue tier 2M–10M (+35 pts) achieving 85 pts (>= 50 cutoff).
