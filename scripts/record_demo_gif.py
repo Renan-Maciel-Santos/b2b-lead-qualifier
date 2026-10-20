@@ -2,7 +2,7 @@
 
 Captures a reproducible sequence of frames using local headless Chrome via CDP
 at 1280x720 resolution, with subtitles in Portuguese, and compiles an optimized
-looping GIF using Pillow.
+looping GIF with a single unified color palette and zero background dithering.
 """
 
 import asyncio
@@ -25,6 +25,7 @@ BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 OUTPUT_PATH = Path("docs/images/demo.gif")
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 720
+TEST_BACKGROUND_COORDINATE = (20, 200)
 
 
 def find_chrome_binary() -> str:
@@ -79,7 +80,7 @@ async def cdp_call(
 
 
 async def capture_frame(ws: Any, msg_id: list[int]) -> Image.Image:
-    """Capture the current viewport as a PIL Image."""
+    """Capture the current viewport as a PIL Image in RGB mode."""
     shot_res = await cdp_call(ws, "Page.captureScreenshot", {"format": "png"}, msg_id)
     img_bytes = base64.b64decode(shot_res["data"])
     temp_img = Image.open(io.BytesIO(img_bytes))
@@ -152,7 +153,7 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
 
             await asyncio.sleep(1.0)
 
-            # Inject the discrete footer caption banner
+            # Inject the discrete footer caption banner with >= 20px font size and proportional height
             init_caption_js = """
             (() => {
                 let banner = document.getElementById('demoCaptionBanner');
@@ -163,21 +164,21 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
                     banner.style.bottom = '0';
                     banner.style.left = '0';
                     banner.style.right = '0';
-                    banner.style.height = '46px';
+                    banner.style.height = '64px';
                     banner.style.backgroundColor = '#ffffff';
-                    banner.style.borderTop = '1px solid #d5dbe1';
+                    banner.style.borderTop = '1px solid #d2d7df';
                     banner.style.display = 'flex';
                     banner.style.alignItems = 'center';
                     banner.style.justifyContent = 'center';
                     banner.style.fontFamily = "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-                    banner.style.fontSize = '14px';
-                    banner.style.fontWeight = '500';
+                    banner.style.fontSize = '21px';
+                    banner.style.fontWeight = '600';
                     banner.style.color = '#1f4e78';
                     banner.style.letterSpacing = '0.01em';
-                    banner.style.boxShadow = '0 -2px 8px rgba(0, 0, 0, 0.04)';
+                    banner.style.boxShadow = '0 -2px 10px rgba(0, 0, 0, 0.05)';
                     banner.style.zIndex = '999999';
                     document.body.appendChild(banner);
-                    document.body.style.paddingBottom = '54px';
+                    document.body.style.paddingBottom = '72px';
                 }
                 banner.textContent = '1. O operador informa uma key com escopo leads:read';
             })()
@@ -202,9 +203,9 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             frames.append(await capture_frame(ws, msg_id))
             durations.append(800)
 
-            # Stage B: Typing key (masked password) and clicking button (2.5s)
+            # Stage B: Typing key (masked password) and clicking button (~2.2s)
             # Legenda: "2. Consulta autenticada à API"
-            print("[Stage B] Typing password and clicking connect...")
+            print("[Stage B] Typing password and clicking button...")
             await execute_js(
                 ws,
                 "document.getElementById('demoCaptionBanner').textContent = '2. Consulta autenticada à API';",
@@ -221,7 +222,7 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             frames.append(await capture_frame(ws, msg_id))
             durations.append(600)
 
-            # Frame 2: Full key in password input (bullet masked by browser)
+            # Frame 2: Full key in password input (bullets masked by browser)
             await execute_js(
                 ws,
                 f"document.getElementById('apiKeyInput').value = '{DEMO_KEY}';",
@@ -229,22 +230,22 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             )
             await asyncio.sleep(0.2)
             frames.append(await capture_frame(ws, msg_id))
-            durations.append(700)
+            durations.append(800)
 
-            # Frame 3: Click effect on button
+            # Frame 3: Click effect on button while subtitle 2 is displayed
             click_btn_js = """
             (() => {
                 const btn = document.getElementById('connectBtn');
                 btn.style.transform = 'scale(0.97)';
-                btn.style.backgroundColor = '#163b5c';
+                btn.style.backgroundColor = '#084273';
             })()
             """
             await execute_js(ws, click_btn_js, msg_id)
             await asyncio.sleep(0.2)
             frames.append(await capture_frame(ws, msg_id))
-            durations.append(600)
+            durations.append(800)
 
-            # Trigger actual fetch
+            # Trigger API fetch and restore button style
             trigger_fetch_js = f"""
             (() => {{
                 const btn = document.getElementById('connectBtn');
@@ -255,8 +256,8 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             """
             await execute_js(ws, trigger_fetch_js, msg_id)
 
-            # Wait for data to load
-            for _ in range(25):
+            # Wait for data to load in DOM before capturing stage C
+            for _ in range(30):
                 await asyncio.sleep(0.2)
                 row_count = await execute_js(
                     ws,
@@ -266,12 +267,9 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
                 if (row_count or 0) >= 3:
                     break
 
-            await asyncio.sleep(0.4)
-            frames.append(await capture_frame(ws, msg_id))
-            durations.append(600)
-
-            # Stage C: Loaded leads with rule breakdown (2.8s)
+            # Stage C: Loaded leads with rule breakdown (~2.7s)
             # Legenda: "3. Cada nota mostra a composição por regra e a distância até o corte"
+            # Crucial: Change caption to Stage 3 BEFORE capturing the first frame with the table visible!
             print("[Stage C] Loaded leads with rule breakdown...")
             await execute_js(
                 ws,
@@ -280,26 +278,27 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             )
             await asyncio.sleep(0.3)
 
-            for _ in range(4):
+            for _ in range(3):
                 frames.append(await capture_frame(ws, msg_id))
-                durations.append(700)
+                durations.append(900)
 
-            # Stage D: Highlight disqualified / knockout lead (2.8s)
+            # Stage D: Highlight disqualified / knockout lead (~2.7s)
             # Legenda: "4. Regras eliminatórias encerram a avaliação na hora"
-            print("[Stage D] Highlight disqualified / knockout lead...")
+            # Uses dashboard palette: background --color-disq-bg (#fbe8e8), outline --color-disq (#8d1d1d)
+            print("[Stage D] Highlight disqualified / knockout lead with dashboard palette...")
             highlight_js = """
             (() => {
                 document.getElementById('demoCaptionBanner').textContent = '4. Regras eliminatórias encerram a avaliação na hora';
                 const rows = document.querySelectorAll('#leadsTableBody tr');
                 rows.forEach(r => {
                     if (r.textContent.includes('Eliminado') || r.textContent.includes('estudante')) {
-                        r.style.backgroundColor = '#fff7ed';
-                        r.style.outline = '2px solid #ea580c';
+                        r.style.backgroundColor = 'var(--color-disq-bg, #fbe8e8)';
+                        r.style.outline = '2px solid var(--color-disq, #8d1d1d)';
                         r.style.outlineOffset = '-2px';
-                        r.style.transition = 'all 0.3s ease';
+                        r.style.transition = 'none';
                     } else {
                         r.style.opacity = '0.55';
-                        r.style.transition = 'all 0.3s ease';
+                        r.style.transition = 'none';
                     }
                 });
             })()
@@ -307,9 +306,9 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
             await execute_js(ws, highlight_js, msg_id)
             await asyncio.sleep(0.3)
 
-            for _ in range(4):
+            for _ in range(3):
                 frames.append(await capture_frame(ws, msg_id))
-                durations.append(700)
+                durations.append(900)
 
     finally:
         proc.terminate()
@@ -322,18 +321,35 @@ async def record_frames() -> tuple[list[Image.Image], list[int]]:
     return frames, durations
 
 
+def build_unified_palette(frames: list[Image.Image]) -> Image.Image:
+    """Create a single global palette covering all storyboard stages."""
+    # Combine frames from Stage A, Stage C (loaded table) and Stage D (disqualified highlight)
+    # into a single reference canvas to derive an optimal 256-color palette
+    sample_indices = [0, len(frames) // 2, len(frames) - 1]
+    ref_w = VIEWPORT_WIDTH
+    ref_h = VIEWPORT_HEIGHT * len(sample_indices)
+    palette_canvas = Image.new("RGB", (ref_w, ref_h))
+
+    for idx, frame_idx in enumerate(sample_indices):
+        palette_canvas.paste(frames[frame_idx], (0, idx * VIEWPORT_HEIGHT))
+
+    # Generate 256-color palette using adaptive quantization
+    palette_base = palette_canvas.quantize(colors=256, method=Image.Resampling.LANCZOS)
+    return palette_base
+
+
 def build_optimized_gif(frames: list[Image.Image], durations: list[int], output_path: Path) -> int:
-    """Compile frames into an optimized looping GIF under 5 MB."""
+    """Compile frames into a single-palette looping GIF without background dithering."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Compiling GIF with {len(frames)} frames...")
+    print(f"Deriving unified color palette from {len(frames)} storyboard frames...")
+    palette_base = build_unified_palette(frames)
 
-    # Quantize frames to reduce color palette and file size
-    # Using adaptive palette (128 colors is crisp for web ledger UI)
+    # Quantize every frame strictly using the exact same master palette and NO dithering
+    # This prevents subtle palette index shifts and color fluctuation across frames
     quantized_frames = []
     for frame in frames:
-        # Convert to P mode with adaptive palette
-        q_frame = frame.quantize(colors=128, method=Image.Resampling.LANCZOS)
+        q_frame = frame.quantize(palette=palette_base, dither=Image.Dither.NONE)
         quantized_frames.append(q_frame)
 
     quantized_frames[0].save(
@@ -351,16 +367,55 @@ def build_optimized_gif(frames: list[Image.Image], durations: list[int], output_
     return size_bytes
 
 
+def verify_background_consistency(
+    gif_path: Path, coord: tuple[int, int] = TEST_BACKGROUND_COORDINATE
+) -> tuple[int, int, int]:
+    """Programmatically verify that background pixel color is identical across all GIF frames."""
+    with Image.open(gif_path) as im:
+        expected_color: tuple[int, int, int] | None = None
+        frame_count: int = getattr(im, "n_frames", 1)
+        for i in range(frame_count):
+            im.seek(i)
+            rgb_frame = im.convert("RGB")
+            color = rgb_frame.getpixel(coord)
+            if not isinstance(color, tuple) or len(color) < 3:
+                raise TypeError(f"Unexpected pixel format at frame {i}: {color}")
+            rgb_color: tuple[int, int, int] = (color[0], color[1], color[2])
+            if expected_color is None:
+                expected_color = rgb_color
+            elif rgb_color != expected_color:
+                raise ValueError(
+                    f"Background color fluctuation at frame {i}: got {rgb_color}, expected {expected_color} at {coord}"
+                )
+
+        if expected_color is None:
+            raise RuntimeError("GIF contains zero frames for background color verification.")
+
+        print(
+            f"Verification PASSED: all {frame_count} frames have identical background color {expected_color} at coordinate {coord}"
+        )
+        return expected_color
+
+
 def main() -> None:
     """Main execution function."""
     print("================================================================================")
-    print(" Recording B2B Lead Qualifier Demo GIF (1280x720)")
+    print(" Recording B2B Lead Qualifier Demo GIF (1280x720 - Unified Palette)")
     print("================================================================================")
     frames, durations = asyncio.run(record_frames())
     size_bytes = build_optimized_gif(frames, durations, OUTPUT_PATH)
 
     if size_bytes > 5 * 1024 * 1024:
         raise ValueError(f"GIF size ({size_bytes} bytes) exceeds 5 MB limit!")
+
+    bg_color = verify_background_consistency(OUTPUT_PATH)
+
+    with Image.open(OUTPUT_PATH) as im:
+        actual_frames: int = getattr(im, "n_frames", 1)
+
+    print(
+        f"Final GIF metrics: {size_bytes} bytes, {actual_frames} frames in file, background color={bg_color}"
+    )
 
 
 if __name__ == "__main__":
