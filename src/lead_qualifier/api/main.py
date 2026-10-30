@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from lead_qualifier import __version__
 from lead_qualifier.api.health import router as health_router
 from lead_qualifier.api.routers.conversation import router as conversation_router
 from lead_qualifier.api.routers.dashboard import router as dashboard_router
@@ -61,7 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="B2B Lead Qualifier",
     description="Conversational B2B lead qualification platform with strict multi-tenancy and deterministic scoring.",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

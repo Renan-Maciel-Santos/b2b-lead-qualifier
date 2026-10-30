@@ -1,3 +1,5 @@
 """B2B Lead Qualifier core package."""
 
-__version__ = "0.1.0"
+import importlib.metadata
+
+__version__ = importlib.metadata.version("b2b-lead-qualifier")
