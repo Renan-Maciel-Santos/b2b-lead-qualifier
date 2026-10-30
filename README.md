@@ -1,5 +1,7 @@
 # B2B Lead Qualifier
 
+[![CI](https://github.com/Renan-Maciel-Santos/b2b-lead-qualifier/actions/workflows/ci.yml/badge.svg)](https://github.com/Renan-Maciel-Santos/b2b-lead-qualifier/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Renan-Maciel-Santos/b2b-lead-qualifier)](https://github.com/Renan-Maciel-Santos/b2b-lead-qualifier/releases)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.143.0+-009688)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-336791)](https://github.com/pgvector/pgvector)
@@ -374,6 +376,12 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 - **RAG Pipeline Prepared but Not Integrated:** PostgreSQL 17 with `pgvector` and HNSW indexing is configured in tenant schemas (`knowledge_base`), but vector retrieval is not currently wired into the conversational state machine turn loop.
 - **PostgreSQL Catalog Scaling with Schema-per-Tenant:** Schema-per-tenant provides robust tenant isolation and simple retention management, but PostgreSQL catalogs experience performance degradation when scaling past several hundred schemas on a single instance.
 - **CLI Key Provisioning Connection:** The administrative CLI requires administrative database access (`ADMIN_DATABASE_URL`) to insert into `core.api_keys` because the web application's unprivileged role (`app_user`) has `REVOKE ALL` on that table. In production, key provisioning should use a dedicated deployment/infrastructure role with least-privilege permissions on `core.api_keys`, rather than the database superuser.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the notable changes in each release.
 
 ---
 
