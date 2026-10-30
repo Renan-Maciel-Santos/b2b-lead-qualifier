@@ -13,6 +13,13 @@ COPY pyproject.toml uv.lock ./
 # Instala apenas dependencias de producao (sem extras de teste/lint)
 RUN uv sync --frozen --no-dev --no-install-project
 
+# Copia o codigo-fonte e o README para instalacao do pacote
+COPY README.md ./
+COPY src/ ./src/
+
+# Instala o proprio pacote no ambiente virtual
+RUN uv sync --frozen --no-dev --no-editable
+
 # Estagio final minimo e seguro para execucao
 FROM python:3.12-slim-bookworm
 
@@ -27,9 +34,6 @@ WORKDIR /app
 
 # Copia o ambiente virtual pre-compilado do builder
 COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
-
-# Copia o codigo-fonte da aplicacao
-COPY --chown=appuser:appuser src/ /app/src/
 
 # Configura o PATH para priorizar o ambiente virtual isolado
 ENV PATH="/app/.venv/bin:$PATH" \
