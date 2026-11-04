@@ -122,9 +122,23 @@ jobs:
           docker compose logs
           exit 1
 
-      - name: Verify package installed and importable in container
+      - name: Read expected version from pyproject.toml
+        id: project
         run: |
-          docker compose exec -T api python -c "import importlib.metadata as m; assert m.version('b2b-lead-qualifier') == '0.1.0'"
+          echo "version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Verify package installed and importable in container
+        env:
+          EXPECTED_VERSION: ${{ steps.project.outputs.version }}
+        run: |
+          docker compose exec -T -e EXPECTED_VERSION api python -c "
+          import importlib, importlib.metadata as m, os
+          importlib.import_module('lead_qualifier')
+          installed = m.version('b2b-lead-qualifier')
+          expected = os.environ['EXPECTED_VERSION']
+          assert installed == expected, f'installed={installed} expected={expected}'
+          print(f'b2b-lead-qualifier {installed} importable')
+          "
 
       - name: Teardown stack
         if: always()
