@@ -362,6 +362,24 @@ Key architectural decisions are documented in [`docs/adr/`](docs/adr/):
 - [ADR 0003: API Key Authentication and Tenant Resolution](docs/adr/0003-api-key-authentication.md) — Centralized SHA-256 API key authentication decoupling tenant IDs from public URLs.
 - [ADR 0004: Transaction Boundaries and LLM Calls](docs/adr/0004-transaction-boundaries-and-llm-calls.md) — Decoupled transaction boundaries, zero database locks during LLM inference, and transaction-scoped fail-closed tenant context.
 - [ADR 0005: Fail-Early Knockouts and Complete Qualification](docs/adr/0005-fail-early-knockout-and-complete-qualification.md) — Terminating dialogue immediately on knockout while requiring complete slot collection before qualification.
+- [ADR 0006: Rule Set Immutability via Database Trigger](docs/adr/0006-rule-set-immutability-via-database-trigger.md) — Enforcing immutable scoring rules and qualification thresholds at the database layer to ensure unalterable audit trails.
+
+---
+
+## How this was built
+
+This project was built with AI coding agents under my direction, as a deliberate exercise in AI-assisted engineering where every decision stays with a human.
+
+- **Design before code.** Each significant decision is recorded as an [ADR](docs/adr/) and approved before implementation. Coding agents implement against the ADR, one small pull request at a time.
+- **Independent verification.** Agent reports are treated as claims, not evidence. Each pull request is reviewed with the help of a second model and verified independently: running the suite against PostgreSQL, running the demo, querying the resulting database state, and comparing extracted code against the code it replaced.
+- **Rules learned from real failures.** [AGENTS.md](AGENTS.md) holds the process rules for the agents, and each one comes from a mistake caught in review.
+
+Some of the issues that review caught:
+
+- When an LLM inference call was initially placed inside the database transaction, database connections were held idle for seconds, threatening connection pool exhaustion under load. The fix became an explicit architectural boundary: [decoupled transaction boundaries and zero database locks during LLM calls](docs/adr/0004-transaction-boundaries-and-llm-calls.md).
+- A subtle packaging omission in the Dockerfile installed third-party dependencies with `--no-install-project` but failed to install the application package itself into the virtual environment, leading to `ModuleNotFoundError` inside the container. An automated container smoke-test job was added to CI to verify package imports and endpoint readiness directly in Docker.
+- To prevent historic lead scores from drifting if business rules changed, rule sets were made strictly immutable at the database engine level via a trigger ([ADR 0006](docs/adr/0006-rule-set-immutability-via-database-trigger.md)), ensuring explainable audit trails.
+- High-scoring roles (such as a CEO title) risked prematurely bypassing subsequent knockout checks on uncollected attributes (like minimum revenue) if scored incrementally. The state machine was redesigned to require complete slot collection before qualification while terminating immediately on knockout ([ADR 0005](docs/adr/0005-fail-early-knockout-and-complete-qualification.md)).
 
 ---
 
